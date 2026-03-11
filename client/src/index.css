@@ -1,0 +1,148 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', sans-serif;
+    --font-display: 'Outfit', sans-serif;
+
+    --background: 206 74% 10%;
+    --foreground: 210 40% 98%;
+    
+    --card: 208 76% 9%;
+    --card-foreground: 210 40% 98%;
+    --card-border: 207 45% 20%;
+    
+    --popover: 208 76% 9%;
+    --popover-foreground: 210 40% 98%;
+    --popover-border: 207 45% 20%;
+    
+    --primary: 208 89% 56%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 208 38% 20%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 208 33% 16%;
+    --muted-foreground: 214 31% 74%;
+    
+    --accent: 216 72% 36%;
+    --accent-foreground: 210 40% 98%;
+    
+    --destructive: 0 66% 44%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 207 33% 24%;
+    --input: 207 33% 24%;
+    --ring: 208 89% 56%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar Variables */
+    --sidebar-background: 206 74% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 208 89% 56%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 208 33% 16%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 207 33% 24%;
+    --sidebar-ring: 208 89% 56%;
+
+    /* Chart Colors */
+    --chart-1: 208 89% 56%;
+    --chart-2: 235 68% 44%;
+    --chart-3: 281 69% 48%;
+    --chart-4: 205 52% 40%;
+    --chart-5: 325 72% 58%;
+  }
+
+  .dark {
+    --background: 206 74% 10%;
+    --foreground: 210 40% 98%;
+    
+    --card: 208 76% 9%;
+    --card-foreground: 210 40% 98%;
+    --card-border: 207 45% 20%;
+    
+    --popover: 208 76% 9%;
+    --popover-foreground: 210 40% 98%;
+    --popover-border: 207 45% 20%;
+    
+    --primary: 208 89% 56%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 208 38% 20%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 208 33% 16%;
+    --muted-foreground: 214 31% 74%;
+    
+    --accent: 216 72% 36%;
+    --accent-foreground: 210 40% 98%;
+    
+    --destructive: 0 66% 44%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 207 33% 24%;
+    --input: 207 33% 24%;
+    --ring: 208 89% 56%;
+
+    --sidebar-background: 206 74% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 208 89% 56%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 208 33% 16%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 207 33% 24%;
+    --sidebar-ring: 208 89% 56%;
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  html, body, #root {
+    min-height: 100%;
+    width: 100%;
+  }
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, rgba(77, 139, 184, 0.16), transparent 28%),
+      radial-gradient(circle at right 20%, rgba(39, 146, 240, 0.12), transparent 24%),
+      linear-gradient(180deg, #062f4f 0%, #041f36 100%);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply font-semibold tracking-tight;
+  }
+}
+
+/* Custom Scrollbar for a polished look */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+
+/* Glass effect utility */
+.glass-panel {
+  @apply bg-card/80 backdrop-blur-md border border-white/20 shadow-lg shadow-black/5;
+}
