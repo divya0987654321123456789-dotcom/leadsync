@@ -1,0 +1,25 @@
+Project Name,City,State,ZIP Code,Project Type,Products Used,Product Category,Annual Energy Savings (kWh/Yr),Annual Cost Savings ($),Fixtures Commissioned,Improved Lighting Levels,Maintenance Savings ($)
+Adams County Justice Center,Brighton,Colorado,80601,Indoor – Municipal,LED Retrofit Luminaires + Advanced Controls,Interior Retrofit Lighting,"1,408,930+","$103,556+",4845,80%,-
+String Theory Charter School,Philadelphia,Pennsylvania,19130,Indoor – Education,High-CRI Flat Panels + Motion-Controlled Strip Lights,Interior Education Lighting,"151,718","$11,151+",372,74%,-
+Moorhead Area School District,Moorhead,Minnesota,56560,Indoor – Education,High-Efficiency LED Fixtures + Smart Controls,Interior Education Lighting,"151,718","$11,151+",372,74%,-
+City of Waterville,Waterville,Maine,4901,Indoor – Municipal,High-Performance LED Luminaires + Controls,Interior Municipal Lighting,"60,249+","$4,428+",232,66.60%,-
+H&M Retail Store Lighting,,,,Indoor – Retail,Marvela Series Luminaires + Alem 2 Track Lights,Retail Interior Lighting,"212,587","$15,625.15 ","1,687",61%,-
+LIDS Retail Store Lighting,,,,Indoor – Retail,Track Lights + Precision Engineered Luminaires,Retail Interior Lighting,"1,140,480","$83,825.28 ",396,66%,-
+Sage Dental Clinic,Kissimmee,Florida,34741,Indoor – Healthcare,High-CRI Glare-Controlled LED Fixtures,Healthcare Interior Lighting,"1,973,005","$387,288 ",-,84%,"$81,037 "
+Old National Bank,Madison,Wisconsin,53703,Indoor – Banking,Glare-Controlled LED Fixtures (Interior + Exterior),Banking Interior + Exterior Lighting,"28,054","$2,061.97 ",168,62%,-
+Marquette Elementary,Gary,Indiana,46402,Indoor – Education,High-Performance Educational LED Fixtures,Interior Education Lighting,"1,973,005","$387,288 ",-,84%,-
+METRO Facilities,Houston,Texas,77002,Mixed – Indoor/Outdoor Commercial,High-Efficiency Facility LED Fixtures,Commercial Facility Lighting,"5,546,526","$305,058.86 ","15,000+",71%,-
+Sagamore Trail Lighting,West Lafayette,Indiana,47906,Outdoor – Municipal,Precision LED Bollard Fixtures,Outdoor Pathway Lighting,"637,655+","$46,867+",148,99%,-
+Northwest Industrial Park,Indianapolis,Indiana,46278,Outdoor – Commercial,LED Wall Packs + Amparo LED Area Luminaires,Outdoor Area & Wall Pack Lighting,-,-,-,-,-
+Centennial Park Pickleball Courts,Crossville,Tennessee,38555,Athletic – Recreation,Precision-Controlled Sports LED Fixtures (50 fc avg),Outdoor Sports Lighting,-,-,-,-,-
+Bolton High School,Arlington,Tennessee,38002,Athletic – School Field,Precision Optic LED Sports Lighting,Outdoor Sports Lighting,"224,208+","$16,479+",129,41%,-
+Louis Crews Stadium (A&M University),Normal,Alabama,35762,Athletic – Stadium,Advanced LED Sports Lighting + Controls,Stadium Sports Lighting,"493,257.6+","$54,554.29+",154,50.90%,-
+Mohawk High School,Crossville,Tennessee,38555,Athletic – School Field,High-Intensity LED Sports Lighting + RGB Capability,Outdoor Sports Lighting,-,-,-,-,-
+Searcy School District,Searcy,Arkansas,72143,Athletic – School Fields,Field-Specific LED Sports Lighting,Outdoor Sports Lighting,"673,920","$49,533.12 ",234,66%,-
+Guthrie Independent School District,Guthrie,Oklahoma,73044,Athletic – School Fields,160 lm/W LED Sports Lighting System,Outdoor Sports Lighting,"368,640","$27,095.04 ",128,66%,-
+Bartlesville ISD,Bartlesville,Oklahoma,74003,Athletic – School Fields,162 lm/W Stadium Flood Lights,Outdoor Sports Lighting,"691,200","$50,803.20 ",237,68%,-
+Pike High School,Indianapolis,Indiana,46268,Athletic – School Fields,High-Efficiency Precision Optic Fixtures,Outdoor Sports Lighting,"161,568","$11,875.25 ",187,25%,-
+Elam Center (University of Tennessee Martin),Martin,Tennessee,38237,Athletic – Indoor Arena,Prima UFO High Bays (300W/240W) + RGBW Stadium Lights,Indoor Arena + Stadium Lighting,-,-,-,-,-
+Abilene ISD,Abilene,Texas,79602,Mixed – Indoor/Outdoor/Athletic,Thermal-Managed High-Efficiency LED Fixtures,Full Facility Lighting,"617,616","$45,394.78 ","16,000+",60%,-
+Tallassee City Schools,Tallassee,Alabama,36078,Athletic – School Fields,External Driver Sports Lighting System,Outdoor Sports Lighting,"584,064","$42,928.70 ",220,61%,-
+Trenton Central High School,Trenton,New Jersey,8618,Athletic – School Field,Warranty-Backed Low-Maintenance Luminaires,Outdoor Sports Lighting,"60,480","$4,445.28 ",84,20%,-
