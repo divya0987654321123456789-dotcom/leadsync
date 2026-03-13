@@ -1,6 +1,6 @@
 # Lead Sync Dashboard
 
-This app reads lead and email analytics from a shared Google Sheets workbook export and protects the dashboard with a session-based login.
+This app reads lead/email analytics and Projects Mapper data from Google Sheets workbook exports and protects the dashboard with a stateless signed-cookie login.
 
 ## Workbook source
 
@@ -48,6 +48,35 @@ Notes:
 - The published web link is accepted, but the docs URL is the preferred source because it maps cleanly to workbook export.
 - The legacy OneDrive and Microsoft Graph fallback code still exists, but Google Sheets is now the primary deployment path.
 
+## Projects source
+
+Default hosted source:
+
+- Google Sheets docs URL:
+  `https://docs.google.com/spreadsheets/d/1jYkwEpQ2hXLycm0mlglTVaN-joSlQrvTNUwSSaN6Uqg/edit?usp=sharing`
+- Published web URL:
+  `https://docs.google.com/spreadsheets/d/e/2PACX-1vTd0kUGt528IBYbHS8-pgCQX2Vge-15bWo9Pb1mjYqNiEN0W2Rym_le1_KyJ65kZCViOXHlQhCFafHt/pubhtml`
+
+Override it with one of these environment variables before starting the server:
+
+- `PROJECTS_SOURCE_URL`
+  Preferred hosted Projects workbook URL.
+- `SALES_MAPPER_SOURCE_URL`
+  Alias for the Projects workbook URL.
+- `PROJECTS_GOOGLE_SHEETS_URL`
+  Alias for the Google Sheets docs URL.
+- `PROJECTS_GOOGLE_SHEETS_DOCS_URL`
+  Explicit Google Sheets docs URL.
+- `PROJECTS_GOOGLE_SHEETS_PUBLISHED_URL`
+  Optional published web URL reference.
+
+Notes:
+
+- Hosted deployments should use the Google Sheets docs URL for Projects.
+- The server normalizes the docs URL to a direct `.xlsx` export at runtime.
+- The bundled `data/sales-mapper-data.json` file remains only as a fallback seed if the remote Projects sheet is temporarily unavailable.
+- ZIP centroids are reused from the bundled mapper payload unless the workbook itself includes latitude/longitude columns.
+
 ## Supported sheets
 
 The dashboard dropdown is populated from the workbook tabs. The current workbook includes:
@@ -58,7 +87,7 @@ The dashboard dropdown is populated from the workbook tabs. The current workbook
 
 ## Authentication
 
-The app uses a server session and protects `/`, `/leads`, and all workbook APIs.
+The app uses a stateless signed cookie and protects `/`, `/leads`, and all workbook APIs.
 
 Default local admin account:
 
@@ -82,3 +111,19 @@ Behavior:
 - Outlook or other external addresses can be allowed explicitly through `AUTH_ALLOWED_EMAILS`.
 
 This build does not include real Microsoft or Google OAuth yet. That still needs provider client IDs, secrets, and redirect URIs.
+
+## Deployment
+
+For Vercel, Railway, Render, or similar hosts, use the Google Sheets docs URLs rather than local workbook paths:
+
+```text
+WORKBOOK_SOURCE_URL=https://docs.google.com/spreadsheets/d/1JhbylSA2yPp7aFOHXJGa6o8UvRALVqaurpswNF0yii4/edit?usp=sharing
+PROJECTS_SOURCE_URL=https://docs.google.com/spreadsheets/d/1jYkwEpQ2hXLycm0mlglTVaN-joSlQrvTNUwSSaN6Uqg/edit?usp=sharing
+SESSION_SECRET=replace-this-in-production
+AUTH_BASIC_EMAIL=admin@ikioledlighting.com
+AUTH_BASIC_NAME=Admin
+AUTH_BASIC_PASSWORD=replace-this-password
+AUTH_COMPANY_PASSWORD=replace-this-password
+```
+
+This avoids any dependency on a writable filesystem, runtime-generated SQLite files, or in-memory server sessions.
