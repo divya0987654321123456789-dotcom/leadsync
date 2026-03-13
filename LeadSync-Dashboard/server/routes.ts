@@ -74,8 +74,8 @@ export async function registerRoutes(
       const salesMapper = await getSalesMapperData();
       res.json(salesMapper);
     } catch (err: any) {
-      console.error("Sales mapper load error:", err);
-      res.status(500).json({ message: `Failed to fetch sales mapper: ${err.message}` });
+      console.error("Projects load error:", err);
+      res.status(500).json({ message: `Failed to fetch Projects: ${err.message}` });
     }
   });
 
@@ -151,3 +151,4 @@ export async function registerRoutes(
 
   return httpServer;
 }
+

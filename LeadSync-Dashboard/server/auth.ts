@@ -1,12 +1,10 @@
-import type { NextFunction, Request, Response } from "express";
-import session from "express-session";
-import createMemoryStore from "memorystore";
-import { timingSafeEqual } from "node:crypto";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AuthUser } from "@shared/routes";
 
-declare module "express-session" {
-  interface SessionData {
-    user?: AuthUser;
+declare module "express-serve-static-core" {
+  interface Request {
+    authUser?: AuthUser | null;
   }
 }
 
@@ -14,7 +12,12 @@ const DEFAULT_BASIC_EMAIL = "admin@ikioledlighting.com";
 const DEFAULT_BASIC_NAME = "IKIO Admin";
 const DEFAULT_BASIC_PASSWORD = "LeadSync@123";
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const SessionStore = createMemoryStore(session);
+const SESSION_COOKIE_NAME = "ikio_auth";
+
+type SessionPayload = {
+  user: AuthUser;
+  expiresAt: number;
+};
 
 function parseCsvEnv(value: string | undefined): string[] {
   return (value || "")
@@ -58,6 +61,10 @@ function shouldTrustProxy(): boolean {
 
   const rawValue = process.env.TRUST_PROXY?.trim().toLowerCase();
   return rawValue !== "false" && rawValue !== "0" && rawValue !== "off";
+}
+
+function getSessionSecret(): string {
+  return process.env.SESSION_SECRET || "lead-sync-session-secret";
 }
 
 const authConfig = {
@@ -109,25 +116,115 @@ export function authenticateUser(email: string, password: string): AuthUser | nu
   return null;
 }
 
-export function getSessionMiddleware() {
-  const isProduction = isProductionEnvironment();
-  const trustProxy = shouldTrustProxy();
+function base64UrlEncode(value: string): string {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
 
-  return session({
-    secret: process.env.SESSION_SECRET || "lead-sync-session-secret",
-    proxy: trustProxy,
-    resave: false,
-    saveUninitialized: false,
-    store: new SessionStore({
-      checkPeriod: SESSION_MAX_AGE_MS,
-    }),
-    cookie: {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isProduction ? "auto" : false,
-      maxAge: SESSION_MAX_AGE_MS,
-    },
-  });
+function base64UrlDecode(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, "base64").toString("utf8");
+}
+
+function signValue(value: string): string {
+  return createHmac("sha256", getSessionSecret()).update(value).digest("base64url");
+}
+
+function encodeSessionCookie(payload: SessionPayload): string {
+  const body = base64UrlEncode(JSON.stringify(payload));
+  const signature = signValue(body);
+  return `${body}.${signature}`;
+}
+
+function decodeSessionCookie(value: string): SessionPayload | null {
+  const [body, signature] = value.split(".");
+  if (!body || !signature) {
+    return null;
+  }
+
+  const expectedSignature = signValue(body);
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (actualBuffer.length !== expectedBuffer.length || !timingSafeEqual(actualBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(base64UrlDecode(body)) as SessionPayload;
+    if (!parsed?.user || !parsed?.expiresAt || parsed.expiresAt <= Date.now()) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  if (!header) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    header
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const separatorIndex = part.indexOf("=");
+        if (separatorIndex === -1) {
+          return [part, ""];
+        }
+
+        return [part.slice(0, separatorIndex), decodeURIComponent(part.slice(separatorIndex + 1))];
+      }),
+  );
+}
+
+function serializeCookie(name: string, value: string, maxAgeMs: number): string {
+  const attributes = [
+    `${name}=${encodeURIComponent(value)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.floor(maxAgeMs / 1000)}`,
+  ];
+
+  if (isProductionEnvironment()) {
+    attributes.push("Secure");
+  }
+
+  return attributes.join("; ");
+}
+
+function clearCookie(name: string): string {
+  const attributes = [
+    `${name}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+  ];
+
+  if (isProductionEnvironment()) {
+    attributes.push("Secure");
+  }
+
+  return attributes.join("; ");
+}
+
+export function getSessionMiddleware(): RequestHandler {
+  return (req, _res, next) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const sessionValue = cookies[SESSION_COOKIE_NAME];
+    req.authUser = sessionValue ? decodeSessionCookie(sessionValue)?.user || null : null;
+    next();
+  };
 }
 
 export function shouldEnableProxyTrust(): boolean {
@@ -135,7 +232,7 @@ export function shouldEnableProxyTrust(): boolean {
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session.user) {
+  if (!req.authUser) {
     return res.status(401).json({ message: "Authentication required" });
   }
 
@@ -143,44 +240,21 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function getSessionUser(req: Request): AuthUser | null {
-  return req.session.user || null;
+  return req.authUser || null;
 }
 
 export async function establishSession(req: Request, user: AuthUser): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    req.session.regenerate((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+  const payload: SessionPayload = {
+    user,
+    expiresAt: Date.now() + SESSION_MAX_AGE_MS,
+  };
 
-      resolve();
-    });
-  });
-
-  req.session.user = user;
-
-  await new Promise<void>((resolve, reject) => {
-    req.session.save((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve();
-    });
-  });
+  const header = serializeCookie(SESSION_COOKIE_NAME, encodeSessionCookie(payload), SESSION_MAX_AGE_MS);
+  req.authUser = user;
+  req.res?.append("Set-Cookie", header);
 }
 
 export async function destroySession(req: Request): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    req.session.destroy((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve();
-    });
-  });
+  req.authUser = null;
+  req.res?.append("Set-Cookie", clearCookie(SESSION_COOKIE_NAME));
 }

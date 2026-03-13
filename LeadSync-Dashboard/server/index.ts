@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { getSessionMiddleware, shouldEnableProxyTrust } from "./auth";
 import { warmWorkbookCache } from "./onedrive-workbook";
+import { warmSalesMapperCache } from "./sales-mapper";
 
 const app = express();
 const httpServer = createServer(app);
@@ -73,6 +74,9 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await warmWorkbookCache().catch((error) => {
     console.error("Workbook warmup error:", error);
+  });
+  await warmSalesMapperCache().catch((error) => {
+    console.error("Projects warmup error:", error);
   });
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

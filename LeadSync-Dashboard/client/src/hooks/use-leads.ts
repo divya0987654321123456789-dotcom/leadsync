@@ -115,7 +115,7 @@ export function useSalesMapperData() {
         throw new Error("Authentication required");
       }
       if (!res.ok) {
-        throw new Error(await parseErrorMessage(res, "Failed to fetch sales mapper"));
+        throw new Error(await parseErrorMessage(res, "Failed to fetch Projects"));
       }
       const data = await res.json();
       return parseWithLogging(api.dashboard.salesMapper.responses[200], data, "dashboard.salesMapper");
@@ -224,3 +224,4 @@ export function useDeleteLead() {
     }
   });
 }
+

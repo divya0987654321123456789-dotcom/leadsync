@@ -25,7 +25,7 @@ export function AppLayout({
     .toUpperCase();
   const navItems = [
     { path: "/", label: "Dashboard" },
-    { path: "/sales-mapper", label: "Sales Mapper" },
+    { path: "/projects", label: "Projects" },
   ];
 
   return (
@@ -107,3 +107,4 @@ export function AppLayout({
     </div>
   );
 }
+

@@ -155,6 +155,11 @@ function formatTimestamp(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US");
 }
 
+function getPrimaryImage(images: string[] | null | undefined) {
+  if (!images || !images.length) return null;
+  return images[0];
+}
+
 function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
   const earthRadiusMiles = 3958.8;
@@ -263,11 +268,13 @@ function SalesMapPanel({
   projects,
   selectedState,
   nearestProject,
+  onStateSelect,
 }: {
   stateCounts: Record<string, number>;
   projects: MappedProject[];
   selectedState: string;
   nearestProject: ProjectWithDistance | null;
+  onStateSelect: (stateCode: string) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -388,8 +395,29 @@ function SalesMapPanel({
       { displayModeBar: false, responsive: true },
     );
 
+    const handleClick = (event: { points?: Array<{ location?: string; text?: string }> }) => {
+      const point = event.points?.[0];
+      if (!point) return;
+      const candidate = point.location || point.text || "";
+      if (STATE_CENTROIDS[candidate]) {
+        onStateSelect(candidate);
+      }
+    };
+
+    const target = ref.current as any;
+    if (target?.removeListener) {
+      target.removeListener("plotly_click", handleClick);
+    }
+    if (target?.on) {
+      target.on("plotly_click", handleClick);
+    }
+
     return () => {
       if (ref.current && plotly) {
+        const cleanupTarget = ref.current as any;
+        if (cleanupTarget?.removeListener) {
+          cleanupTarget.removeListener("plotly_click", handleClick);
+        }
         plotly.purge(ref.current);
       }
     };
@@ -397,7 +425,7 @@ function SalesMapPanel({
 
   return (
     <SurfaceCard
-      title="U.S. Sales Mapper"
+      title="U.S. Projects"
       subtitle="Coverage by project state with mapped site pins and the selected-state route"
       className="min-h-[620px]"
     >
@@ -410,7 +438,7 @@ export default function SalesMapper() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selectedState, setSelectedState] = useState("IN");
   const { data, isLoading, isFetching, error } = useSalesMapperData();
-  const errorMessage = error instanceof Error ? error.message : "There was an error loading the sales mapper.";
+  const errorMessage = error instanceof Error ? error.message : "There was an error loading the Projects.";
 
   useEffect(() => {
     if (!data) return;
@@ -451,6 +479,7 @@ export default function SalesMapper() {
   }, [mappedProjects, selectedState]);
 
   const nearestProject = nearestProjects[0] || null;
+  const primaryImage = nearestProject ? getPrimaryImage(nearestProject.images) : null;
 
   const stateCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -484,7 +513,7 @@ export default function SalesMapper() {
 
   if (isLoading && !data) {
     return (
-      <AppLayout sectionLabel="Sales Mapper" showDashboardNav>
+      <AppLayout sectionLabel="Projects" showDashboardNav>
         <div className="flex h-[60vh] items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -494,9 +523,9 @@ export default function SalesMapper() {
 
   if (error && !data) {
     return (
-      <AppLayout sectionLabel="Sales Mapper" showDashboardNav>
+      <AppLayout sectionLabel="Projects" showDashboardNav>
         <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-8 text-center text-destructive">
-          <h2 className="text-xl font-bold">Failed to load sales mapper</h2>
+          <h2 className="text-xl font-bold">Failed to load Projects</h2>
           <p className="mt-2">{errorMessage}</p>
         </div>
       </AppLayout>
@@ -506,11 +535,11 @@ export default function SalesMapper() {
   if (!data) return null;
 
   return (
-    <AppLayout sectionLabel="Sales Mapper" showDashboardNav>
+    <AppLayout sectionLabel="Projects" showDashboardNav>
       <div className="w-full min-w-0 space-y-5 pb-8">
         <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-end">
           <div className="space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-[0.26em] text-muted-foreground">IKIO sales mapper</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.26em] text-muted-foreground">IKIO Projects</div>
             <h1 className="text-3xl font-display font-bold tracking-tight text-foreground md:text-[2.2rem]">
               Coverage and nearest-project command center
             </h1>
@@ -589,6 +618,7 @@ export default function SalesMapper() {
               projects={mappedProjects}
               selectedState={selectedState}
               nearestProject={nearestProject}
+              onStateSelect={setSelectedState}
             />
 
             <div className="grid gap-4">
@@ -600,6 +630,14 @@ export default function SalesMapper() {
                   <div className="space-y-4">
                     <div className="rounded-2xl border border-[#1c3d53] bg-gradient-to-br from-[#10283c] to-[#0c1a29] p-4">
                       <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Closest project</div>
+                      {primaryImage ? (
+                        <img
+                          src={primaryImage}
+                          alt={`${nearestProject.name} image`}
+                          className="mt-3 h-40 w-full rounded-xl border border-[#173047] object-cover"
+                          loading="lazy"
+                        />
+                      ) : null}
                       <div className="mt-2 font-display text-2xl font-bold text-white">{nearestProject.name}</div>
                       <div className="mt-2 text-sm text-slate-300">
                         {(nearestProject.city || "-")}, {nearestProject.stateCode || nearestProject.state || "-"}
@@ -612,6 +650,24 @@ export default function SalesMapper() {
                           {nearestProject.productCategory || "Unspecified category"}
                         </span>
                       </div>
+                      {nearestProject.description ? (
+                        <div className="mt-4 text-sm text-slate-200">
+                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Description</div>
+                          <p className="mt-2 leading-relaxed">{nearestProject.description}</p>
+                        </div>
+                      ) : null}
+                      {nearestProject.challenge ? (
+                        <div className="mt-4 text-sm text-slate-200">
+                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Challenge</div>
+                          <p className="mt-2 leading-relaxed">{nearestProject.challenge}</p>
+                        </div>
+                      ) : null}
+                      {nearestProject.resolution ? (
+                        <div className="mt-4 text-sm text-slate-200">
+                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Resolution</div>
+                          <p className="mt-2 leading-relaxed">{nearestProject.resolution}</p>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="space-y-2">
@@ -673,34 +729,62 @@ export default function SalesMapper() {
               subtitle={`Closest mapped projects from ${STATE_CODE_TO_NAME[selectedState] || selectedState}`}
             >
               <div className="max-h-[460px] overflow-auto rounded-2xl border border-[#173047]">
-                <Table className="min-w-[960px] bg-[#071723] text-slate-100">
+                <Table className="min-w-[1400px] bg-[#071723] text-slate-100">
                   <TableHeader className="sticky top-0 z-10 bg-[#173047] [&_th]:text-slate-200">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>Project</TableHead>
+                      <TableHead>Image</TableHead>
                       <TableHead>City</TableHead>
                       <TableHead>State</TableHead>
                       <TableHead>ZIP</TableHead>
                       <TableHead>Distance</TableHead>
                       <TableHead>Category</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Challenge</TableHead>
+                      <TableHead>Resolution</TableHead>
                       <TableHead>Savings</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {nearestProjects.length ? (
-                      nearestProjects.slice(0, 12).map((item) => (
-                        <TableRow key={item.id} className="border-[#173047] hover:bg-[#0d2335]">
-                          <TableCell className="font-medium text-slate-100">{item.name}</TableCell>
-                          <TableCell className="text-slate-200">{item.city || "-"}</TableCell>
-                          <TableCell className="text-slate-200">{item.stateCode || item.state || "-"}</TableCell>
-                          <TableCell className="text-slate-200">{item.zip || "-"}</TableCell>
-                          <TableCell className="font-semibold text-white">{formatMiles(item.distanceMiles)}</TableCell>
-                          <TableCell className="text-slate-200">{item.productCategory || "-"}</TableCell>
-                          <TableCell className="text-slate-200">{formatCurrency(item.annualCostSavingsUsd)}</TableCell>
-                        </TableRow>
-                      ))
+                      nearestProjects.slice(0, 12).map((item) => {
+                        const image = getPrimaryImage(item.images);
+                        return (
+                          <TableRow key={item.id} className="border-[#173047] hover:bg-[#0d2335]">
+                            <TableCell className="font-medium text-slate-100">{item.name}</TableCell>
+                            <TableCell className="text-slate-200">
+                              {image ? (
+                                <img
+                                  src={image}
+                                  alt={`${item.name} image`}
+                                  className="h-12 w-16 rounded-lg border border-[#173047] object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-slate-200">{item.city || "-"}</TableCell>
+                            <TableCell className="text-slate-200">{item.stateCode || item.state || "-"}</TableCell>
+                            <TableCell className="text-slate-200">{item.zip || "-"}</TableCell>
+                            <TableCell className="font-semibold text-white">{formatMiles(item.distanceMiles)}</TableCell>
+                            <TableCell className="text-slate-200">{item.productCategory || "-"}</TableCell>
+                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                              {item.description || "-"}
+                            </TableCell>
+                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                              {item.challenge || "-"}
+                            </TableCell>
+                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                              {item.resolution || "-"}
+                            </TableCell>
+                            <TableCell className="text-slate-200">{formatCurrency(item.annualCostSavingsUsd)}</TableCell>
+                          </TableRow>
+                        );
+                      })
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-32 text-center text-slate-400">
+                        <TableCell colSpan={11} className="h-32 text-center text-slate-400">
                           No mapped projects match the current filters.
                         </TableCell>
                       </TableRow>
@@ -715,3 +799,4 @@ export default function SalesMapper() {
     </AppLayout>
   );
 }
+

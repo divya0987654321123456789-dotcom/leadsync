@@ -117,6 +117,10 @@ const salesMapperProjectSchema = z.object({
   fixturesCommissioned: z.number().nullable(),
   improvedLightingPercent: z.number().nullable(),
   maintenanceSavingsUsd: z.number().nullable(),
+  images: z.array(z.string()).nullable(),
+  description: z.string().nullable(),
+  challenge: z.string().nullable(),
+  resolution: z.string().nullable(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
 });

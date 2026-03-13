@@ -60,6 +60,14 @@ function LoginRoute() {
   return <Login />;
 }
 
+function ProjectsRedirect() {
+  const [, setLocation] = useLocation();
+  useEffect(() => {
+    setLocation("/projects");
+  }, [setLocation]);
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
@@ -67,6 +75,9 @@ function Router() {
         <LoginRoute />
       </Route>
       <Route path="/sales-mapper">
+        <ProjectsRedirect />
+      </Route>
+      <Route path="/projects">
         <RequireAuth>
           <SalesMapper />
         </RequireAuth>
