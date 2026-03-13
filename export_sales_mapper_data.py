@@ -113,8 +113,32 @@ def parse_number(value: object) -> float | None:
 
 
 def load_rows(path: Path) -> list[dict[str, str]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+    # Source CSV uses Windows-1252 characters (e.g., smart quotes).
+    with path.open("r", encoding="cp1252", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def parse_images(value: object) -> list[str] | None:
+    raw = normalize_text(value)
+    if not raw:
+        return None
+    lowered = raw.lower()
+    if lowered in {"picture", "image", "images"}:
+        return None
+
+    separators = ["|", ";"]
+    for sep in separators:
+        if sep in raw:
+            parts = [normalize_text(part) for part in raw.split(sep)]
+            images = [part for part in parts if part]
+            return images or None
+
+    if "," in raw:
+        parts = [normalize_text(part) for part in raw.split(",")]
+        images = [part for part in parts if part]
+        return images or None
+
+    return [raw]
 
 
 def build_zip_lookup(zips: list[str]) -> dict[str, dict[str, float]]:
@@ -180,6 +204,10 @@ def build_payload(source_path: Path) -> dict[str, object]:
                 "fixturesCommissioned": parse_number(row.get("Fixtures Commissioned")),
                 "improvedLightingPercent": parse_number(row.get("Improved Lighting Levels")),
                 "maintenanceSavingsUsd": parse_number(row.get("Maintenance Savings ($)")),
+                "images": parse_images(row.get("Images")),
+                "description": normalize_text(row.get("Description")) or None,
+                "challenge": normalize_text(row.get("Challenge")) or None,
+                "resolution": normalize_text(row.get("Resolution")) or None,
                 "latitude": coordinates["latitude"] if coordinates else None,
                 "longitude": coordinates["longitude"] if coordinates else None,
             }

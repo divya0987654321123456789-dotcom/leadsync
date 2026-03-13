@@ -162,6 +162,7 @@ const DEFAULT_SALES_FILTERS = {
   projectType: "All",
   productCategory: "All",
 };
+const SALES_MAP_NEAREST_LIMIT = 5;
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
@@ -913,7 +914,7 @@ function PageSwitcher({ activePage, onChange }) {
         className=${`page-switcher-button${activePage === "sales-mapper" ? " is-active" : ""}`}
         onClick=${() => onChange("sales-mapper")}
       >
-        Sales Mapper
+        Projects
       </button>
     </nav>
   `;
@@ -1287,7 +1288,7 @@ function SalesProjectsTable({ items, selectedState }) {
                 `)
               : html`
                   <tr>
-                    <td colSpan="8" className="table-empty">No mapped projects match the current sales mapper filters.</td>
+                    <td colSpan="8" className="table-empty">No mapped projects match the current Projects filters.</td>
                   </tr>
                 `}
           </tbody>
@@ -1297,7 +1298,7 @@ function SalesProjectsTable({ items, selectedState }) {
   `;
 }
 
-function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject }) {
+function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState, nearestProjects }) {
   const mapRef = useRef(null);
 
   useEffect(() => {
@@ -1418,18 +1419,42 @@ function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject })
         showlegend: false,
       });
 
-      if (nearestProject) {
-        const midpointLat = (selectedLat + nearestProject.latitude) / 2;
-        const midpointLon = (selectedLon + nearestProject.longitude) / 2;
+      const visibleNearestProjects = nearestProjects
+        .filter((project) => Number.isFinite(project.latitude) && Number.isFinite(project.longitude))
+        .slice(0, SALES_MAP_NEAREST_LIMIT);
+
+      if (visibleNearestProjects.length) {
+        const lineLat = [];
+        const lineLon = [];
+        const midpointLat = [];
+        const midpointLon = [];
+        const midpointText = [];
+        const highlightedCustomData = [];
+
+        visibleNearestProjects.forEach((project, index) => {
+          lineLat.push(selectedLat, project.latitude, null);
+          lineLon.push(selectedLon, project.longitude, null);
+          midpointLat.push((selectedLat + project.latitude) / 2);
+          midpointLon.push((selectedLon + project.longitude) / 2);
+          midpointText.push(`#${index + 1} ${formatMiles(project.distanceMiles)}`);
+          highlightedCustomData.push([
+            index + 1,
+            project.city || "-",
+            project.state || project.stateCode || "-",
+            project.productCategory || "Unspecified",
+            project.zip || "-",
+            formatMiles(project.distanceMiles),
+          ]);
+        });
 
         traces.push({
           type: "scattergeo",
-          lat: [selectedLat, nearestProject.latitude],
-          lon: [selectedLon, nearestProject.longitude],
+          lat: lineLat,
+          lon: lineLon,
           mode: "lines",
           line: {
             color: "#ffb347",
-            width: 2.4,
+            width: 2.1,
           },
           hoverinfo: "skip",
           showlegend: false,
@@ -1437,12 +1462,12 @@ function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject })
 
         traces.push({
           type: "scattergeo",
-          lat: [midpointLat],
-          lon: [midpointLon],
-          text: [formatMiles(nearestProject.distanceMiles)],
+          lat: midpointLat,
+          lon: midpointLon,
+          text: midpointText,
           mode: "text",
           textfont: {
-            size: 11,
+            size: 10,
             color: "#ffddb2",
             family: "Space Grotesk, sans-serif",
           },
@@ -1452,9 +1477,9 @@ function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject })
 
         traces.push({
           type: "scattergeo",
-          lat: [nearestProject.latitude],
-          lon: [nearestProject.longitude],
-          text: [nearestProject.name],
+          lat: visibleNearestProjects.map((project) => project.latitude),
+          lon: visibleNearestProjects.map((project) => project.longitude),
+          text: visibleNearestProjects.map((project, index) => `#${index + 1} ${project.name}`),
           mode: "markers+text",
           textposition: "top center",
           marker: {
@@ -1465,8 +1490,9 @@ function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject })
               width: 2,
             },
           },
+          customdata: highlightedCustomData,
           hovertemplate:
-            `<b>${nearestProject.name}</b><br>${nearestProject.city || "-"}, ${nearestProject.state || nearestProject.stateCode || "-"}<br>${formatMiles(nearestProject.distanceMiles)}<extra></extra>`,
+            "<b>%{text}</b><br>%{customdata[1]}, %{customdata[2]}<br>%{customdata[3]}<br>ZIP %{customdata[4]}<br>%{customdata[5]}<extra></extra>",
           showlegend: false,
         });
       }
@@ -1495,19 +1521,38 @@ function SalesMapPanel({ stateCounts, projects, selectedState, nearestProject })
       },
     );
 
+    const handlePlotClick = (event) => {
+      const point = event?.points?.[0];
+      if (!point) return;
+
+      if (typeof point.location === "string" && US_STATE_SET.has(point.location)) {
+        setSelectedState(point.location);
+        return;
+      }
+
+      if (typeof point.text === "string") {
+        const match = point.text.match(/\b([A-Z]{2})\b/);
+        if (match && US_STATE_SET.has(match[1])) {
+          setSelectedState(match[1]);
+        }
+      }
+    };
+
+    mapRef.current.on("plotly_click", handlePlotClick);
+
     return () => {
       if (mapRef.current && window.Plotly) {
         window.Plotly.purge(mapRef.current);
       }
     };
-  }, [nearestProject, projects, selectedState, stateCounts]);
+  }, [nearestProjects, projects, selectedState, setSelectedState, stateCounts]);
 
   return html`
     <section className="panel sales-map-panel">
       <div className="panel-head">
         <div>
-          <h3 className="panel-title">U.S. Sales Mapper</h3>
-          <p className="panel-caption">Coverage by project state, plus the nearest mapped project in miles</p>
+          <h3 className="panel-title">U.S. Projects</h3>
+          <p className="panel-caption">Coverage by project state, plus the top ${SALES_MAP_NEAREST_LIMIT} nearest mapped projects in miles</p>
         </div>
       </div>
       <div className="map-wrap">
@@ -1603,7 +1648,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
   if (isLoading && !salesData) {
     return html`
       <${PageStatusPanel}
-        title="Loading sales mapper"
+        title="Loading Projects"
         detail="Reading the local project sheet, ZIP centroids, and map-ready project footprint."
       />
     `;
@@ -1612,7 +1657,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
   if (!salesData) {
     return html`
       <${PageStatusPanel}
-        title="Sales mapper unavailable"
+        title="Projects unavailable"
         detail=${loadError || "The local project data file could not be loaded."}
       />
     `;
@@ -1622,7 +1667,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
     <section className="page-section">
       <header className="dashboard-head">
         <div>
-          <div className="eyebrow">Sales Mapper</div>
+          <div className="eyebrow">Projects</div>
           <h1 className="page-title">U.S. project footprint and nearest-project lookup</h1>
           <p className="page-copy">
             Built from the provided IKIO case-study CSV. Distances are shown in miles using Haversine calculations from the selected state centroid to each mapped project ZIP centroid.
@@ -1677,7 +1722,8 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
           stateCounts=${stateCounts}
           projects=${mappedProjects}
           selectedState=${selectedState}
-          nearestProject=${nearestProject}
+          setSelectedState=${setSelectedState}
+          nearestProjects=${nearestProjects}
         />
         <div className="sales-side-stack">
           <${SalesNearestPanel}
@@ -1760,7 +1806,7 @@ function App() {
       try {
         const response = await fetch(SALES_MAPPER_DATA_URL, { cache: "no-store" });
         if (!response.ok) {
-          throw new Error(`Sales mapper request failed with status ${response.status}`);
+          throw new Error(`Projects request failed with status ${response.status}`);
         }
         const nextData = await response.json();
         if (cancelled) return;
@@ -1769,7 +1815,7 @@ function App() {
         setSalesLoadError("");
       } catch (error) {
         if (cancelled) return;
-        setSalesLoadError(error instanceof Error ? error.message : "Unknown sales mapper error");
+        setSalesLoadError(error instanceof Error ? error.message : "Unknown Projects error");
       } finally {
         if (!cancelled) setSalesIsLoading(false);
       }
@@ -1803,7 +1849,7 @@ function App() {
       <section className="suite-bar">
         <div>
           <div className="eyebrow">IKIO Dashboard Suite</div>
-          <p className="suite-copy">Switch between the live lead dashboard and the new sales mapper view.</p>
+          <p className="suite-copy">Switch between the live lead dashboard and the new Projects view.</p>
         </div>
         <${PageSwitcher} activePage=${activePage} onChange=${setActivePage} />
       </section>
@@ -1835,3 +1881,4 @@ function App() {
 }
 
 createRoot(document.getElementById("root")).render(html`<${App} />`);
+

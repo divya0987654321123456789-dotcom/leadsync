@@ -3,7 +3,7 @@
 Static React dashboard with two views:
 
 - `Lead Sync` reads the shared Excel workbook from OneDrive/SharePoint at runtime.
-- `Sales Mapper` reads a generated local JSON file built from the IKIO project CSV.
+- `Projects` reads a generated local JSON file built from the IKIO project CSV.
 
 ## Files
 
@@ -24,9 +24,9 @@ At runtime the page requests the workbook download URL, rebuilds the summary met
 
 If the Excel file is updated in OneDrive/SharePoint, the dashboard will pick up the new values on the next refresh cycle or page reload.
 
-## Sales mapper data source
+## Projects data source
 
-The sales mapper page is generated from:
+The Projects page is generated from:
 
 `Lead-Sync-Dashboard/Lead-Sync-Dashboard/IKIO_Final_With_Zip_And_Product_Category.csv`
 
@@ -47,3 +47,4 @@ Then open `http://localhost:4173`.
 ## Deploy
 
 Upload the repository contents to any static host such as Netlify, Vercel, GitHub Pages, Cloudflare Pages, or an S3-style static website bucket.
+
