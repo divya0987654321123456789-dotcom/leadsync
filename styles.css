@@ -44,12 +44,14 @@ input {
 
 .page,
 .status-page {
-  width: min(1600px, calc(100% - 30px));
+  width: min(1600px, 100%);
   margin: 0 auto;
+  padding-inline: clamp(12px, 2vw, 20px);
 }
 
 .page {
-  padding: 16px 0 28px;
+  padding-top: 16px;
+  padding-bottom: 28px;
 }
 
 .page-section {
@@ -118,6 +120,7 @@ input {
   justify-content: space-between;
   gap: 18px;
   align-items: start;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
@@ -126,6 +129,7 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
+  flex-wrap: wrap;
   margin-bottom: 18px;
   padding: 14px 16px;
   border-radius: var(--radius);
@@ -142,6 +146,7 @@ input {
 .page-switcher {
   display: inline-flex;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 6px;
   border-radius: 999px;
   background: rgba(5, 20, 33, 0.72);
@@ -149,7 +154,7 @@ input {
 }
 
 .page-switcher-button {
-  min-width: 132px;
+  min-width: 120px;
   padding: 10px 16px;
   border: 0;
   border-radius: 999px;
@@ -185,7 +190,7 @@ input {
   flex-wrap: wrap;
   justify-content: end;
   gap: 10px;
-  max-width: 560px;
+  max-width: 100%;
 }
 
 .meta-pill {
@@ -209,7 +214,7 @@ input {
 
 .toolbar-grid {
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -279,39 +284,43 @@ input {
 
 .charts-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.95fr 1.05fr 1.05fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 16px;
 }
 
 .bottom-grid {
   display: grid;
-  grid-template-columns: 1.14fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
   gap: 14px;
   align-items: stretch;
 }
 
 .sales-toolbar-grid {
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 
-.sales-top-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
-  gap: 14px;
-  align-items: start;
-}
-
-.sales-side-stack {
+.sales-map-stack {
   display: grid;
   gap: 14px;
 }
 
 .sales-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.4fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 14px;
   align-items: start;
+}
+
+.dashboard-head > *,
+.suite-bar > *,
+.panel-head > *,
+.toolbar-grid > *,
+.charts-grid > *,
+.bottom-grid > *,
+.sales-map-stack > *,
+.sales-bottom-grid > * {
+  min-width: 0;
 }
 
 .panel {
@@ -425,16 +434,18 @@ input {
   grid-template-columns: 1fr;
   gap: 16px;
   align-items: center;
-  justify-items: center;
+  justify-items: stretch;
   padding-top: 6px;
+  width: 100%;
 }
 
 .donut {
-  width: min(210px, 100%);
+  width: min(100%, 210px);
   aspect-ratio: 1;
   border-radius: 999px;
   display: grid;
   place-items: center;
+  margin-inline: auto;
 }
 
 .donut-hole {
@@ -455,25 +466,43 @@ input {
 }
 
 .donut-total-value {
-  font-size: 1.25rem;
+  font-size: clamp(1.05rem, 1.4vw, 1.25rem);
 }
 
 .donut-legend {
   display: grid;
   gap: 10px;
   width: 100%;
+  max-width: 100%;
 }
 
 .donut-legend-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
+  min-width: 0;
 }
 
 .donut-legend-value {
   color: var(--text);
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.donut-panel {
+  min-width: 0;
+}
+
+.donut-panel .legend-item {
+  min-width: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.donut-panel .legend-item {
+  overflow-wrap: anywhere;
 }
 
 .table-panel {
@@ -482,12 +511,13 @@ input {
 
 .table-wrap {
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
 }
 
 .data-table {
   width: 100%;
-  min-width: 900px;
+  min-width: 760px;
   border-collapse: collapse;
   background: rgba(245, 246, 248, 0.86);
   color: #2e2e2e;
@@ -518,7 +548,7 @@ input {
 }
 
 .sales-map-panel {
-  min-height: 640px;
+  min-height: 760px;
 }
 
 .map-wrap,
@@ -528,9 +558,32 @@ input {
   min-height: 390px;
 }
 
+.map-canvas-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.map-logo-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.map-logo-pin {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  object-fit: contain;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.28);
+}
+
 .sales-map-panel .map-wrap,
 .sales-map-panel .map-canvas {
-  min-height: 550px;
+  min-height: 680px;
 }
 
 .empty-state {
@@ -674,34 +727,15 @@ input {
 }
 
 .sales-data-table {
-  min-width: 980px;
-}
-
-@media (max-width: 1420px) {
-  .toolbar-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .charts-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .sales-toolbar-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .sales-bottom-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  min-width: 840px;
 }
 
 @media (max-width: 1024px) {
   .suite-bar,
-  .dashboard-head,
-  .bottom-grid,
-  .sales-top-grid {
-    grid-template-columns: 1fr;
-    display: grid;
+  .sales-map-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .head-meta {
@@ -711,28 +745,25 @@ input {
 
   .page-switcher {
     width: 100%;
-    justify-content: stretch;
+    justify-content: center;
   }
 
   .page-switcher-button {
     flex: 1;
-  }
-
-  .sales-bottom-grid {
-    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
   .page,
   .status-page {
-    width: min(100% - 18px, 100%);
+    width: 100%;
+    padding-inline: 12px;
   }
 
   .toolbar-grid,
   .charts-grid,
   .bottom-grid,
-  .sales-top-grid,
+  .sales-map-stack,
   .sales-bottom-grid {
     grid-template-columns: 1fr;
   }
@@ -752,6 +783,15 @@ input {
     width: 180px;
   }
 
+  .donut-legend-row {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .donut-legend-value {
+    white-space: normal;
+  }
+
   .coverage-row,
   .nearest-detail-grid {
     grid-template-columns: 1fr;
@@ -759,5 +799,24 @@ input {
 
   .nearest-list-row {
     grid-template-columns: 1fr;
+  }
+
+  .sales-map-panel {
+    min-height: 430px;
+  }
+
+  .sales-map-panel .map-wrap,
+  .sales-map-panel .map-canvas,
+  .map-canvas-stack {
+    min-height: 340px;
+  }
+
+  .sales-data-table {
+    min-width: 640px;
+  }
+
+  .map-logo-pin {
+    width: 14px;
+    height: 14px;
   }
 }

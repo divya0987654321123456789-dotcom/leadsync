@@ -147,6 +147,62 @@ const STATE_CENTROIDS = {
   WY: [42.755966, -107.30249],
   DC: [38.9072, -77.0369],
 };
+const STATE_TO_FIPS = {
+  AL: "01",
+  AK: "02",
+  AZ: "04",
+  AR: "05",
+  CA: "06",
+  CO: "08",
+  CT: "09",
+  DE: "10",
+  DC: "11",
+  FL: "12",
+  GA: "13",
+  HI: "15",
+  ID: "16",
+  IL: "17",
+  IN: "18",
+  IA: "19",
+  KS: "20",
+  KY: "21",
+  LA: "22",
+  ME: "23",
+  MD: "24",
+  MA: "25",
+  MI: "26",
+  MN: "27",
+  MS: "28",
+  MO: "29",
+  MT: "30",
+  NE: "31",
+  NV: "32",
+  NH: "33",
+  NJ: "34",
+  NM: "35",
+  NY: "36",
+  NC: "37",
+  ND: "38",
+  OH: "39",
+  OK: "40",
+  OR: "41",
+  PA: "42",
+  RI: "44",
+  SC: "45",
+  SD: "46",
+  TN: "47",
+  TX: "48",
+  UT: "49",
+  VT: "50",
+  VA: "51",
+  WA: "53",
+  WV: "54",
+  WI: "55",
+  WY: "56",
+};
+const COUNTY_GEOJSON_URL = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json";
+const IKIO_MARKER_LOGO_PATH = "./ikio-marker-logo.svg";
+let countyGeoJsonPromise = null;
 
 const DEFAULT_FILTERS = {
   campaignType: "All",
@@ -162,6 +218,7 @@ const DEFAULT_SALES_FILTERS = {
   projectType: "All",
   productCategory: "All",
 };
+const DEFAULT_SALES_SELECTED_STATE = "All";
 const SALES_MAP_NEAREST_LIMIT = 5;
 
 function formatNumber(value) {
@@ -198,6 +255,102 @@ function formatTimestamp(value) {
   if (!value) return "Pending";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Pending" : date.toLocaleString("en-US");
+}
+
+function getProjectMapLabel(project) {
+  const city = project.city?.trim();
+  return city ? `${city}, ${project.stateCode || project.state || ""}`.replace(/,\s*$/, "") : project.name;
+}
+
+function appendBoundaryRing(ring, latitudes, longitudes) {
+  ring.forEach(([lon, lat]) => {
+    longitudes.push(lon);
+    latitudes.push(lat);
+  });
+  longitudes.push(null);
+  latitudes.push(null);
+}
+
+function appendBoundaryGeometry(geometry, latitudes, longitudes) {
+  if (!geometry?.type || !geometry.coordinates) return;
+  if (geometry.type === "Polygon") {
+    geometry.coordinates.forEach((ring) => appendBoundaryRing(ring, latitudes, longitudes));
+    return;
+  }
+  if (geometry.type === "MultiPolygon") {
+    geometry.coordinates.forEach((polygon) => {
+      polygon.forEach((ring) => appendBoundaryRing(ring, latitudes, longitudes));
+    });
+  }
+}
+
+async function loadCountyGeoJson() {
+  if (!countyGeoJsonPromise) {
+    countyGeoJsonPromise = fetch(COUNTY_GEOJSON_URL, { cache: "force-cache" }).then((response) => {
+      if (!response.ok) {
+        throw new Error(`County boundary request failed with status ${response.status}`);
+      }
+      return response.json();
+    });
+  }
+  return countyGeoJsonPromise;
+}
+
+async function getCountyBoundaryLines(stateCodes) {
+  const prefixes = new Set(stateCodes.map((code) => STATE_TO_FIPS[code]).filter(Boolean));
+  if (!prefixes.size) return { latitudes: [], longitudes: [] };
+
+  const geoJson = await loadCountyGeoJson();
+  const latitudes = [];
+  const longitudes = [];
+
+  geoJson.features?.forEach((feature) => {
+    const featureId = String(feature.id || "");
+    if (!prefixes.has(featureId.slice(0, 2))) return;
+    appendBoundaryGeometry(feature.geometry, latitudes, longitudes);
+  });
+
+  return { latitudes, longitudes };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getStateMapViewport(selectedState, projects) {
+  const fallback = {
+    center: { lat: 39.5, lon: -98.35 },
+    scale: 1,
+  };
+
+  const centroid = STATE_CENTROIDS[selectedState];
+  if (!selectedState || !centroid) return fallback;
+
+  const stateProjects = projects.filter((project) => project.stateCode === selectedState);
+  if (!stateProjects.length) {
+    return {
+      center: { lat: centroid[0], lon: centroid[1] },
+      scale: 4.4,
+    };
+  }
+
+  const latitudes = stateProjects.map((project) => project.latitude);
+  const longitudes = stateProjects.map((project) => project.longitude);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
+  const latSpan = Math.max(maxLat - minLat, 0.6);
+  const lonSpan = Math.max(maxLon - minLon, 0.6);
+  const dominantSpan = Math.max(latSpan, lonSpan);
+
+  return {
+    center: {
+      lat: (minLat + maxLat) / 2,
+      lon: (minLon + maxLon) / 2,
+    },
+    scale: clamp(8.5 / dominantSpan, 4.2, 11),
+  };
 }
 
 function formatDateLabel(value) {
@@ -572,7 +725,7 @@ function MonthlyResponseChart({ items }) {
   const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 
   return html`
-    <section className="panel">
+    <section className="panel donut-panel">
       <div className="panel-head">
         <div>
           <h3 className="panel-title">Monthly Response</h3>
@@ -1184,77 +1337,16 @@ function SalesCoveragePanel({ items }) {
   `;
 }
 
-function SalesNearestPanel({ selectedState, nearestProject, nearestProjects }) {
-  if (!nearestProject) {
-    return html`<${EmptyPanel}
-      title="Nearest Project"
-      caption="Selected-state centroid to project ZIP centroid"
-      message="No mapped projects are available for the current mapper filters."
-    />`;
-  }
-
-  return html`
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <h3 className="panel-title">Nearest Project</h3>
-          <p className="panel-caption">
-            ${STATE_CODE_TO_NAME[selectedState] || selectedState} centroid to the closest mapped project
-          </p>
-        </div>
-      </div>
-
-      <div className="nearest-hero">
-        <div className="nearest-distance">${formatMiles(nearestProject.distanceMiles)}</div>
-        <div className="nearest-name">${nearestProject.name}</div>
-        <div className="nearest-location">
-          ${nearestProject.city || "Unknown city"}, ${nearestProject.state || nearestProject.stateCode || "Unknown state"}
-          ${nearestProject.zip ? ` ${nearestProject.zip}` : ""}
-        </div>
-      </div>
-
-      <div className="nearest-detail-grid">
-        <article className="nearest-detail-card">
-          <span className="nearest-detail-label">Category</span>
-          <strong>${nearestProject.productCategory || "Unspecified"}</strong>
-        </article>
-        <article className="nearest-detail-card">
-          <span className="nearest-detail-label">Type</span>
-          <strong>${nearestProject.projectType || "Unspecified"}</strong>
-        </article>
-        <article className="nearest-detail-card">
-          <span className="nearest-detail-label">Energy Savings</span>
-          <strong>${nearestProject.annualEnergySavingsKwh ? `${formatCompact(nearestProject.annualEnergySavingsKwh)} kWh` : "(Blank)"}</strong>
-        </article>
-        <article className="nearest-detail-card">
-          <span className="nearest-detail-label">Cost Savings</span>
-          <strong>${nearestProject.annualCostSavingsUsd ? formatCurrency(nearestProject.annualCostSavingsUsd) : "(Blank)"}</strong>
-        </article>
-      </div>
-
-      <div className="nearest-list">
-        ${nearestProjects.slice(0, 5).map((item, index) => html`
-          <div className="nearest-list-row" key=${item.id}>
-            <span className="nearest-rank">#${index + 1}</span>
-            <span className="nearest-list-name">${item.name}</span>
-            <span className="nearest-list-distance">${formatMiles(item.distanceMiles)}</span>
-          </div>
-        `)}
-      </div>
-
-      <p className="panel-footnote">Distances use Haversine miles from the selected state centroid to each project ZIP centroid.</p>
-    </section>
-  `;
-}
-
 function SalesProjectsTable({ items, selectedState }) {
   return html`
     <section className="panel table-panel sales-table-panel">
       <div className="panel-head">
         <div>
-          <h3 className="panel-title">Nearest Project List</h3>
+          <h3 className="panel-title">Nearest Project Table</h3>
           <p className="panel-caption">
-            Closest mapped projects from ${STATE_CODE_TO_NAME[selectedState] || selectedState}
+            ${selectedState === "All"
+              ? "Projects ranked across all states after the current filters."
+              : `Projects ranked from ${STATE_CODE_TO_NAME[selectedState] || selectedState}, with same-state matches shown first`}
           </p>
         </div>
       </div>
@@ -1300,247 +1392,353 @@ function SalesProjectsTable({ items, selectedState }) {
 
 function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState, nearestProjects }) {
   const mapRef = useRef(null);
+  const overlayRef = useRef(null);
 
   useEffect(() => {
     if (!mapRef.current || !window.Plotly) return;
 
-    const locations = US_STATES.map(([code]) => code);
-    const zValues = locations.map((code) => stateCounts[code] || 0);
-    const maxValue = Math.max(...zValues, 1);
-    const traces = [
-      {
-        type: "choropleth",
-        locationmode: "USA-states",
-        locations,
-        z: zValues,
-        zmin: 0,
-        zmax: maxValue,
-        showscale: false,
-        colorscale: [
-          [0, "#d7e5f2"],
-          [0.35, "#a8c0d8"],
-          [0.7, "#6e95bc"],
-          [1, "#0d4d8a"],
-        ],
-        marker: {
-          line: {
-            color: "#7d8ea3",
-            width: 0.8,
+    let cancelled = false;
+
+    const renderMap = async () => {
+      const locations = US_STATES.map(([code]) => code);
+      const zValues = locations.map((code) => stateCounts[code] || 0);
+      const maxValue = Math.max(...zValues, 1);
+      const coveredStates = Object.keys(stateCounts).filter((stateCode) => stateCounts[stateCode] > 0);
+      const coveredStatePoints = coveredStates
+        .filter((stateCode) => STATE_CENTROIDS[stateCode])
+        .map((stateCode) => ({
+          code: stateCode,
+          count: stateCounts[stateCode],
+          lat: STATE_CENTROIDS[stateCode][0],
+          lon: STATE_CENTROIDS[stateCode][1],
+        }));
+      const viewport = getStateMapViewport(selectedState, projects);
+      const countyLines = await getCountyBoundaryLines(coveredStates);
+      if (cancelled || !mapRef.current) return;
+
+      const projectCustomData = projects.map((project) => [
+        project.id,
+        project.city || "-",
+        project.state || project.stateCode || "-",
+        project.productCategory || "Unspecified",
+        project.zip || "-",
+        getProjectMapLabel(project),
+      ]);
+      const traces = [
+        {
+          type: "choropleth",
+          locationmode: "USA-states",
+          locations,
+          z: zValues,
+          zmin: 0,
+          zmax: maxValue,
+          showscale: false,
+          colorscale: [
+            [0, "#d7e5f2"],
+            [0.35, "#a8c0d8"],
+            [0.7, "#6e95bc"],
+            [1, "#0d4d8a"],
+          ],
+          marker: {
+            line: {
+              color: "#7d8ea3",
+              width: 0.8,
+            },
           },
+          hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
         },
-        hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
-      },
-    ];
+      ];
 
-    if (projects.length) {
-      traces.push({
-        type: "scattergeo",
-        lat: projects.map((project) => project.latitude),
-        lon: projects.map((project) => project.longitude),
-        text: projects.map((project) => project.name),
-        mode: "markers",
-        marker: {
-          size: 9,
-          color: "#2de1c2",
-          line: {
-            color: "#ffffff",
-            width: 1.1,
+      if (coveredStates.length) {
+        traces.push({
+          type: "choropleth",
+          locationmode: "USA-states",
+          locations: coveredStates,
+          z: coveredStates.map((stateCode) => stateCounts[stateCode]),
+          zmin: 1,
+          zmax: maxValue,
+          showscale: false,
+          colorscale: [
+            [0, "#8bc5ff"],
+            [0.45, "#3c8cff"],
+            [1, "#0a4f9c"],
+          ],
+          marker: {
+            line: {
+              color: "#d7ecff",
+              width: 1.4,
+            },
           },
-          opacity: 0.9,
-        },
-        customdata: projects.map((project) => [
-          project.city || "-",
-          project.state || project.stateCode || "-",
-          project.productCategory || "Unspecified",
-          project.zip || "-",
-        ]),
-        hovertemplate:
-          "<b>%{text}</b><br>%{customdata[0]}, %{customdata[1]}<br>%{customdata[2]}<br>ZIP %{customdata[3]}<extra></extra>",
-        showlegend: false,
-      });
-    }
-
-    const coveredStates = Object.keys(stateCounts).filter((stateCode) => stateCounts[stateCode] > 0);
-    if (coveredStates.length) {
-      traces.push({
-        type: "scattergeo",
-        lat: coveredStates.map((stateCode) => STATE_CENTROIDS[stateCode]?.[0]).filter(Boolean),
-        lon: coveredStates.map((stateCode) => STATE_CENTROIDS[stateCode]?.[1]).filter(Boolean),
-        text: coveredStates.filter((stateCode) => STATE_CENTROIDS[stateCode]),
-        mode: "text",
-        showlegend: false,
-        hoverinfo: "skip",
-        textfont: {
-          size: 9,
-          color: "#233649",
-          family: "Space Grotesk, sans-serif",
-        },
-      });
-    }
-
-    if (selectedState && STATE_CENTROIDS[selectedState]) {
-      const [selectedLat, selectedLon] = STATE_CENTROIDS[selectedState];
-
-      traces.push({
-        type: "choropleth",
-        locationmode: "USA-states",
-        locations: [selectedState],
-        z: [1],
-        colorscale: [
-          [0, "rgba(0,0,0,0)"],
-          [1, "rgba(0,0,0,0)"],
-        ],
-        showscale: false,
-        marker: {
-          line: {
-            color: "#f7c65c",
-            width: 2.4,
-          },
-        },
-        hoverinfo: "skip",
-      });
-
-      traces.push({
-        type: "scattergeo",
-        lat: [selectedLat],
-        lon: [selectedLon],
-        text: [selectedState],
-        mode: "markers+text",
-        textposition: "bottom center",
-        marker: {
-          size: 11,
-          color: "#f7c65c",
-          line: {
-            color: "#041f36",
-            width: 2,
-          },
-        },
-        hovertemplate: `${STATE_CODE_TO_NAME[selectedState] || selectedState} centroid<extra></extra>`,
-        showlegend: false,
-      });
-
-      const visibleNearestProjects = nearestProjects
-        .filter((project) => Number.isFinite(project.latitude) && Number.isFinite(project.longitude))
-        .slice(0, SALES_MAP_NEAREST_LIMIT);
-
-      if (visibleNearestProjects.length) {
-        const lineLat = [];
-        const lineLon = [];
-        const midpointLat = [];
-        const midpointLon = [];
-        const midpointText = [];
-        const highlightedCustomData = [];
-
-        visibleNearestProjects.forEach((project, index) => {
-          lineLat.push(selectedLat, project.latitude, null);
-          lineLon.push(selectedLon, project.longitude, null);
-          midpointLat.push((selectedLat + project.latitude) / 2);
-          midpointLon.push((selectedLon + project.longitude) / 2);
-          midpointText.push(`#${index + 1} ${formatMiles(project.distanceMiles)}`);
-          highlightedCustomData.push([
-            index + 1,
-            project.city || "-",
-            project.state || project.stateCode || "-",
-            project.productCategory || "Unspecified",
-            project.zip || "-",
-            formatMiles(project.distanceMiles),
-          ]);
+          hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
         });
+      }
 
+      if (countyLines.latitudes.length) {
         traces.push({
           type: "scattergeo",
-          lat: lineLat,
-          lon: lineLon,
+          lat: countyLines.latitudes,
+          lon: countyLines.longitudes,
           mode: "lines",
           line: {
-            color: "#ffb347",
-            width: 2.1,
+            color: "rgba(8, 31, 51, 0.28)",
+            width: 0.45,
           },
           hoverinfo: "skip",
+          showlegend: false,
+        });
+      }
+
+      if (projects.length) {
+        traces.push({
+          type: "scattergeo",
+          lat: projects.map((project) => project.latitude),
+          lon: projects.map((project) => project.longitude),
+          mode: "markers",
+          marker: {
+            size: 20,
+            color: "#08345f",
+            line: {
+              color: "#d8f4ff",
+              width: 2,
+            },
+            opacity: 0.9,
+          },
+          customdata: projectCustomData,
+          hovertemplate:
+            "<b>%{customdata[5]}</b><br>IKIO project site<br>%{customdata[3]}<br>ZIP %{customdata[4]}<extra></extra>",
           showlegend: false,
         });
 
         traces.push({
           type: "scattergeo",
-          lat: midpointLat,
-          lon: midpointLon,
-          text: midpointText,
+          lat: projects.map((project) => project.latitude),
+          lon: projects.map((project) => project.longitude),
+          text: projects.map((project) => getProjectMapLabel(project)),
           mode: "text",
+          textposition: "top center",
           textfont: {
             size: 10,
-            color: "#ffddb2",
+            color: "#d7ecff",
             family: "Space Grotesk, sans-serif",
           },
+          customdata: projectCustomData,
           hoverinfo: "skip",
           showlegend: false,
+        });
+      }
+
+      if (coveredStatePoints.length) {
+        traces.push({
+          type: "scattergeo",
+          lat: coveredStatePoints.map((point) => point.lat),
+          lon: coveredStatePoints.map((point) => point.lon),
+          text: coveredStatePoints.map((point) => `${point.code} (${point.count})`),
+          customdata: coveredStatePoints.map((point) => point.code),
+          mode: "text",
+          showlegend: false,
+          hoverinfo: "skip",
+          textfont: {
+            size: 10,
+            color: "#0a2338",
+            family: "Space Grotesk, sans-serif",
+          },
+        });
+      }
+
+      if (selectedState && STATE_CENTROIDS[selectedState]) {
+        const [selectedLat, selectedLon] = STATE_CENTROIDS[selectedState];
+
+        traces.push({
+          type: "choropleth",
+          locationmode: "USA-states",
+          locations: [selectedState],
+          z: [1],
+          colorscale: [
+            [0, "rgba(0,0,0,0)"],
+            [1, "rgba(0,0,0,0)"],
+          ],
+          showscale: false,
+          marker: {
+            line: {
+              color: "#f7c65c",
+              width: 2.4,
+            },
+          },
+          hoverinfo: "skip",
         });
 
         traces.push({
           type: "scattergeo",
-          lat: visibleNearestProjects.map((project) => project.latitude),
-          lon: visibleNearestProjects.map((project) => project.longitude),
-          text: visibleNearestProjects.map((project, index) => `#${index + 1} ${project.name}`),
+          lat: [selectedLat],
+          lon: [selectedLon],
+          text: [selectedState],
+          customdata: [selectedState],
           mode: "markers+text",
-          textposition: "top center",
+          textposition: "bottom center",
           marker: {
-            size: 15,
-            color: "#ff7b00",
+            size: 11,
+            color: "#f7c65c",
             line: {
-              color: "#ffffff",
+              color: "#041f36",
               width: 2,
             },
           },
-          customdata: highlightedCustomData,
-          hovertemplate:
-            "<b>%{text}</b><br>%{customdata[1]}, %{customdata[2]}<br>%{customdata[3]}<br>ZIP %{customdata[4]}<br>%{customdata[5]}<extra></extra>",
+          hovertemplate: `${STATE_CODE_TO_NAME[selectedState] || selectedState} centroid<extra></extra>`,
           showlegend: false,
         });
-      }
-    }
 
-    window.Plotly.react(
-      mapRef.current,
-      traces,
-      {
-        geo: {
-          scope: "usa",
-          projection: { type: "albers usa" },
-          bgcolor: "rgba(0,0,0,0)",
-          showland: true,
-          landcolor: "#dce8f4",
-          lakecolor: "rgba(0,0,0,0)",
-          subunitcolor: "#7d8ea3",
-        },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
-        margin: { l: 0, r: 0, t: 0, b: 0 },
-      },
-      {
-        displayModeBar: false,
-        responsive: true,
-      },
-    );
+        const visibleNearestProjects = nearestProjects
+          .filter((project) => Number.isFinite(project.latitude) && Number.isFinite(project.longitude))
+          .slice(0, SALES_MAP_NEAREST_LIMIT);
 
-    const handlePlotClick = (event) => {
-      const point = event?.points?.[0];
-      if (!point) return;
+        if (visibleNearestProjects.length) {
+          const lineLat = [];
+          const lineLon = [];
+          const midpointLat = [];
+          const midpointLon = [];
+          const midpointText = [];
+          const highlightedCustomData = [];
 
-      if (typeof point.location === "string" && US_STATE_SET.has(point.location)) {
-        setSelectedState(point.location);
-        return;
-      }
+          visibleNearestProjects.forEach((project, index) => {
+            lineLat.push(selectedLat, project.latitude, null);
+            lineLon.push(selectedLon, project.longitude, null);
+            midpointLat.push((selectedLat + project.latitude) / 2);
+            midpointLon.push((selectedLon + project.longitude) / 2);
+            midpointText.push(`#${index + 1} ${formatMiles(project.distanceMiles)}`);
+            highlightedCustomData.push([
+              index + 1,
+              project.city || "-",
+              project.state || project.stateCode || "-",
+              project.productCategory || "Unspecified",
+              project.zip || "-",
+              formatMiles(project.distanceMiles),
+            ]);
+          });
 
-      if (typeof point.text === "string") {
-        const match = point.text.match(/\b([A-Z]{2})\b/);
-        if (match && US_STATE_SET.has(match[1])) {
-          setSelectedState(match[1]);
+          traces.push({
+            type: "scattergeo",
+            lat: lineLat,
+            lon: lineLon,
+            mode: "lines",
+            line: {
+              color: "#ffb347",
+              width: 2.1,
+            },
+            hoverinfo: "skip",
+            showlegend: false,
+          });
+
+          traces.push({
+            type: "scattergeo",
+            lat: midpointLat,
+            lon: midpointLon,
+            text: midpointText,
+            mode: "text",
+            textfont: {
+              size: 10,
+              color: "#ffddb2",
+              family: "Space Grotesk, sans-serif",
+            },
+            hoverinfo: "skip",
+            showlegend: false,
+          });
+
+          traces.push({
+            type: "scattergeo",
+            lat: visibleNearestProjects.map((project) => project.latitude),
+            lon: visibleNearestProjects.map((project) => project.longitude),
+            text: visibleNearestProjects.map((project, index) => `#${index + 1} ${project.name}`),
+            mode: "markers+text",
+            textposition: "top center",
+            marker: {
+              size: 15,
+              color: "#ff7b00",
+              line: {
+                color: "#ffffff",
+                width: 2,
+              },
+            },
+            customdata: highlightedCustomData,
+            hovertemplate:
+              "<b>%{text}</b><br>%{customdata[1]}, %{customdata[2]}<br>%{customdata[3]}<br>ZIP %{customdata[4]}<br>%{customdata[5]}<extra></extra>",
+            showlegend: false,
+          });
         }
       }
+
+      await window.Plotly.react(
+        mapRef.current,
+        traces,
+        {
+          geo: {
+            scope: "usa",
+            projection: { type: "albers usa", scale: viewport.scale },
+            center: viewport.center,
+            bgcolor: "rgba(0,0,0,0)",
+            showland: true,
+            landcolor: "#dce8f4",
+            lakecolor: "rgba(0,0,0,0)",
+            subunitcolor: "#7d8ea3",
+          },
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          margin: { l: 0, r: 0, t: 0, b: 0 },
+        },
+        {
+          displayModeBar: false,
+          responsive: true,
+        },
+      );
+      if (cancelled || !mapRef.current) return;
+
+      const renderLogoPins = () => {
+        const overlay = overlayRef.current;
+        const projection = mapRef.current?._fullLayout?.geo?._subplot?.projection;
+        if (!overlay) return;
+        overlay.replaceChildren();
+        if (typeof projection !== "function") return;
+
+        projects.forEach((project) => {
+          const projected = projection([project.longitude, project.latitude]);
+          if (!Array.isArray(projected) || projected.length < 2) return;
+          const [x, y] = projected;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+          const logo = document.createElement("img");
+          logo.src = IKIO_MARKER_LOGO_PATH;
+          logo.alt = "IKIO";
+          logo.className = "map-logo-pin";
+          logo.style.left = `${x}px`;
+          logo.style.top = `${y}px`;
+          overlay.appendChild(logo);
+        });
+      };
+
+      const handlePlotClick = (event) => {
+        const point = event?.points?.[0];
+        if (!point) return;
+
+        if (typeof point.location === "string" && US_STATE_SET.has(point.location)) {
+          setSelectedState(point.location);
+          return;
+        }
+
+        if (typeof point.customdata === "string" && US_STATE_SET.has(point.customdata)) {
+          setSelectedState(point.customdata);
+          return;
+        }
+      };
+
+      mapRef.current.on("plotly_click", handlePlotClick);
+      mapRef.current.on("plotly_afterplot", renderLogoPins);
+      mapRef.current.on("plotly_relayout", renderLogoPins);
+      renderLogoPins();
     };
 
-    mapRef.current.on("plotly_click", handlePlotClick);
+    renderMap();
 
     return () => {
+      cancelled = true;
       if (mapRef.current && window.Plotly) {
         window.Plotly.purge(mapRef.current);
       }
@@ -1552,11 +1750,14 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
       <div className="panel-head">
         <div>
           <h3 className="panel-title">U.S. Projects</h3>
-          <p className="panel-caption">Coverage by project state, plus the top ${SALES_MAP_NEAREST_LIMIT} nearest mapped projects in miles</p>
+          <p className="panel-caption">Project states are highlighted, county boundaries are drawn for covered states, and each site uses the IKIO logo marker</p>
         </div>
       </div>
       <div className="map-wrap">
-        <div ref=${mapRef} className="map-canvas"></div>
+        <div className="map-canvas-stack">
+          <div ref=${mapRef} className="map-canvas"></div>
+          <div ref=${overlayRef} className="map-logo-overlay"></div>
+        </div>
       </div>
     </section>
   `;
@@ -1578,6 +1779,14 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
   );
 
   const nearestProjects = useMemo(() => {
+    if (selectedState === "All") {
+      return [...mappedProjects].sort(
+        (a, b) =>
+          (a.stateCode || "").localeCompare(b.stateCode || "") ||
+          a.name.localeCompare(b.name),
+      );
+    }
+
     const centroid = STATE_CENTROIDS[selectedState];
     if (!centroid) return [];
     const [lat0, lon0] = centroid;
@@ -1586,8 +1795,14 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
       .map((project) => ({
         ...project,
         distanceMiles: haversineMiles(lat0, lon0, project.latitude, project.longitude),
+        isInSelectedState: project.stateCode === selectedState,
       }))
-      .sort((a, b) => a.distanceMiles - b.distanceMiles || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) =>
+          Number(b.isInSelectedState) - Number(a.isInSelectedState) ||
+          a.distanceMiles - b.distanceMiles ||
+          a.name.localeCompare(b.name),
+      );
   }, [mappedProjects, selectedState]);
 
   const nearestProject = nearestProjects[0] || null;
@@ -1609,30 +1824,6 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
         .slice(0, 8),
     [stateCounts],
   );
-
-  const productCategoryMix = useMemo(() => {
-    const counts = {};
-    filteredProjects.forEach((project) => {
-      const key = project.productCategory || "Unspecified";
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    const items = Object.entries(counts)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([label, value]) => ({ label, value }));
-    return collapseTopItems(items, 5);
-  }, [filteredProjects]);
-
-  const projectTypeMix = useMemo(() => {
-    const counts = {};
-    filteredProjects.forEach((project) => {
-      const key = project.projectType || "Unspecified";
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    const items = Object.entries(counts)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([label, value]) => ({ label, value }));
-    return collapseTopItems(items, 5);
-  }, [filteredProjects]);
 
   const summary = useMemo(
     () => ({
@@ -1670,7 +1861,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
           <div className="eyebrow">Projects</div>
           <h1 className="page-title">U.S. project footprint and nearest-project lookup</h1>
           <p className="page-copy">
-            Built from the provided IKIO case-study CSV. Distances are shown in miles using Haversine calculations from the selected state centroid to each mapped project ZIP centroid.
+            Built from the provided IKIO case-study CSV. Distances are shown in miles using Haversine calculations from the selected state centroid to each mapped project coordinate, with same-state projects ranked first.
           </p>
         </div>
         <div className="head-meta">
@@ -1709,7 +1900,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
             className="clear-button"
             onClick=${() => {
               setFilters(DEFAULT_SALES_FILTERS);
-              setSelectedState(salesData.defaultState || "IN");
+              setSelectedState(DEFAULT_SALES_SELECTED_STATE);
             }}
           >
             Clear
@@ -1717,7 +1908,7 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
         </article>
       </section>
 
-      <section className="sales-top-grid">
+      <section className="sales-map-stack">
         <${SalesMapPanel}
           stateCounts=${stateCounts}
           projects=${mappedProjects}
@@ -1725,32 +1916,11 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
           setSelectedState=${setSelectedState}
           nearestProjects=${nearestProjects}
         />
-        <div className="sales-side-stack">
-          <${SalesNearestPanel}
-            selectedState=${selectedState}
-            nearestProject=${nearestProject}
-            nearestProjects=${nearestProjects}
-          />
-          <${SalesCoveragePanel} items=${stateCoverage} />
-        </div>
+        <${SalesCoveragePanel} items=${stateCoverage} />
       </section>
 
       <section className="sales-bottom-grid">
-        <${DonutPanel}
-          title="Product Category Mix"
-          caption="Filtered projects grouped by product category"
-          items=${productCategoryMix}
-          centerLabel="Projects"
-          centerValue=${formatCompact(summary.projectCount)}
-        />
-        <${DonutPanel}
-          title="Project Type Mix"
-          caption="Filtered projects grouped by project type"
-          items=${projectTypeMix}
-          centerLabel="Savings"
-          centerValue=${formatCurrency(summary.annualCostSavingsUsd)}
-        />
-        <${SalesProjectsTable} items=${nearestProjects.slice(0, 12)} selectedState=${selectedState} />
+        <${SalesProjectsTable} items=${nearestProjects} selectedState=${selectedState} />
       </section>
     </section>
   `;
@@ -1767,7 +1937,7 @@ function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState("");
   const [salesData, setSalesData] = useState(null);
   const [salesFilters, setSalesFilters] = useState(DEFAULT_SALES_FILTERS);
-  const [salesSelectedState, setSalesSelectedState] = useState("IN");
+  const [salesSelectedState, setSalesSelectedState] = useState(DEFAULT_SALES_SELECTED_STATE);
   const [salesIsLoading, setSalesIsLoading] = useState(true);
   const [salesLoadError, setSalesLoadError] = useState("");
 
