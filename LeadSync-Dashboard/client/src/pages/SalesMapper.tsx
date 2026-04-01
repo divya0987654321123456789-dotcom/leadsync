@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Lightbulb, MapPinned, Route, Shapes } from "lucide-react";
-import { type SalesMapperData } from "@shared/routes";
+import { useEffect, useMemo, useState } from "react";
+import { ExternalLink, Loader2, Lightbulb, MapPinned, Route, Shapes } from "lucide-react";
+import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { type SalesMapperData, type SalesMapperDemographics } from "@shared/routes";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useSalesMapperData } from "@/hooks/use-leads";
+import { useSalesMapperData, useSalesMapperDemographics } from "@/hooks/use-leads";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_FILTERS = {
   projectType: "All",
   productCategory: "All",
 };
+const DEFAULT_REFERENCE_STATE = "All";
 
 const US_STATES = [
   ["AL", "Alabama"],
@@ -69,6 +72,8 @@ const US_STATES = [
 ] as const;
 
 const STATE_CODE_TO_NAME = Object.fromEntries(US_STATES.map(([code, name]) => [code, name]));
+const US_STATES_TOPOJSON_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json";
+const US_COUNTIES_TOPOJSON_URL = "https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json";
 
 const STATE_CENTROIDS: Record<string, [number, number]> = {
   AL: [32.806671, -86.79113],
@@ -124,10 +129,75 @@ const STATE_CENTROIDS: Record<string, [number, number]> = {
   DC: [38.9072, -77.0369],
 };
 
+const STATE_TO_FIPS: Record<string, string> = {
+  AL: "01",
+  AK: "02",
+  AZ: "04",
+  AR: "05",
+  CA: "06",
+  CO: "08",
+  CT: "09",
+  DE: "10",
+  DC: "11",
+  FL: "12",
+  GA: "13",
+  HI: "15",
+  ID: "16",
+  IL: "17",
+  IN: "18",
+  IA: "19",
+  KS: "20",
+  KY: "21",
+  LA: "22",
+  ME: "23",
+  MD: "24",
+  MA: "25",
+  MI: "26",
+  MN: "27",
+  MS: "28",
+  MO: "29",
+  MT: "30",
+  NE: "31",
+  NV: "32",
+  NH: "33",
+  NJ: "34",
+  NM: "35",
+  NY: "36",
+  NC: "37",
+  ND: "38",
+  OH: "39",
+  OK: "40",
+  OR: "41",
+  PA: "42",
+  RI: "44",
+  SC: "45",
+  SD: "46",
+  TN: "47",
+  TX: "48",
+  UT: "49",
+  VT: "50",
+  VA: "51",
+  WA: "53",
+  WV: "54",
+  WI: "55",
+  WY: "56",
+};
+const FIPS_TO_STATE_CODE = Object.fromEntries(Object.entries(STATE_TO_FIPS).map(([code, fips]) => [fips, code]));
 type Filters = typeof DEFAULT_FILTERS;
 type SalesProject = SalesMapperData["projects"][number];
 type MappedProject = SalesProject & { latitude: number; longitude: number };
-type ProjectWithDistance = MappedProject & { distanceMiles: number };
+type ProjectWithDistance = MappedProject & { distanceMiles: number; isInSelectedState: boolean };
+type DemographicMetric = "population" | "medianHouseholdIncome";
+
+const CASE_STUDY_BASE_URL = "https://www.ikioledlighting.com/case-studies/";
+const CASE_STUDY_LIST_URL = "https://www.ikioledlighting.com/case-studies/";
+const EXACT_CASE_STUDY_LINKS: Record<string, string> = {
+  "Abilene ISD": "https://www.ikioledlighting.com/case-studies/abilene_independent_school#",
+};
+const DEMOGRAPHIC_METRIC_OPTIONS: Array<{ value: DemographicMetric; label: string }> = [
+  { value: "population", label: "Population" },
+  { value: "medianHouseholdIncome", label: "Median Income" },
+];
 
 function safeNumber(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -145,9 +215,30 @@ function formatCurrency(value: number | null | undefined) {
   }).format(safeNumber(value));
 }
 
+function formatCompactInteger(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(safeNumber(value));
+}
+
 function formatMiles(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return "(Blank)";
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value))} mi`;
+}
+
+function resolveReferenceState(data: SalesMapperData | undefined, selectedState: string) {
+  if (selectedState !== DEFAULT_REFERENCE_STATE) {
+    return selectedState;
+  }
+
+  const defaultState = data?.defaultState;
+  if (defaultState && STATE_CODE_TO_NAME[defaultState]) {
+    return defaultState;
+  }
+
+  const firstCoveredState = data?.filterOptions.statesWithProjects.find((code) => STATE_CODE_TO_NAME[code]);
+  return firstCoveredState || DEFAULT_REFERENCE_STATE;
 }
 
 function formatTimestamp(value: string) {
@@ -155,9 +246,57 @@ function formatTimestamp(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("en-US");
 }
 
+function getDemographicValue(
+  item:
+    | SalesMapperDemographics["states"][number]
+    | SalesMapperDemographics["counties"][number]
+    | SalesMapperDemographics["districts"][number]
+    | null
+    | undefined,
+  metric: DemographicMetric,
+) {
+  if (!item) return null;
+  return metric === "population" ? item.population : item.medianHouseholdIncome;
+}
+
+function formatDemographicValue(metric: DemographicMetric, value: number | null | undefined) {
+  if (value == null) return "-";
+  return metric === "population" ? formatCompactInteger(value) : formatCurrency(value);
+}
+
+function getMetricLabel(metric: DemographicMetric) {
+  return metric === "population" ? "Population" : "Median Income";
+}
+
+function mixColor(start: [number, number, number], end: [number, number, number], amount: number) {
+  const clamp = Math.max(0, Math.min(1, amount));
+  const channel = (index: number) => Math.round(start[index] + (end[index] - start[index]) * clamp);
+  return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
+}
+
 function getPrimaryImage(images: string[] | null | undefined) {
   if (!images || !images.length) return null;
   return images[0];
+}
+
+function slugifyCaseStudyName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\(.*?\)/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+function getCaseStudyUrl(project: SalesProject) {
+  const exact = EXACT_CASE_STUDY_LINKS[project.name];
+  if (exact) return { url: exact, exact: true };
+
+  const slug = slugifyCaseStudyName(project.name);
+  if (!slug) return { url: CASE_STUDY_LIST_URL, exact: false };
+
+  return { url: `${CASE_STUDY_BASE_URL}${slug}#`, exact: false };
 }
 
 function haversineMiles(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -263,186 +402,532 @@ function SurfaceCard({
   );
 }
 
-function SalesMapPanel({
-  stateCounts,
-  projects,
-  selectedState,
-  nearestProject,
-  onStateSelect,
+function formatFutureField(value: string | null | undefined, fallback = "Available after workbook updates") {
+  const normalized = value?.trim();
+  return normalized ? normalized : fallback;
+}
+
+function DetailSection({
+  label,
+  value,
+  placeholder,
 }: {
-  stateCounts: Record<string, number>;
-  projects: MappedProject[];
-  selectedState: string;
-  nearestProject: ProjectWithDistance | null;
-  onStateSelect: (stateCode: string) => void;
+  label: string;
+  value: string | null | undefined;
+  placeholder?: string;
 }) {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const hasValue = Boolean(value?.trim());
+  return (
+    <div className="rounded-xl border border-[#173047] bg-[#071723] p-4">
+      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</div>
+      <p className={cn("mt-2 text-sm leading-relaxed", hasValue ? "text-slate-200" : "text-slate-500")}>
+        {formatFutureField(value, placeholder)}
+      </p>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    const plotly = (window as Window & { Plotly?: any }).Plotly;
-    if (!plotly || !ref.current) return;
+function buildStateProductSummary(projects: ProjectWithDistance[]) {
+  const values = Array.from(
+    new Set(
+      projects
+        .flatMap((project) => [project.productsUsed, project.productCategory])
+        .filter((value): value is string => Boolean(value?.trim())),
+    ),
+  );
+  return values.length ? values.join(", ") : null;
+}
 
-    const locations = US_STATES.map(([code]) => code);
-    const zValues = locations.map((code) => stateCounts[code] || 0);
-    const maxValue = Math.max(...zValues, 1);
-    const traces: any[] = [
-      {
-        type: "choropleth",
-        locationmode: "USA-states",
-        locations,
-        z: zValues,
-        zmin: 0,
-        zmax: maxValue,
-        showscale: false,
-        colorscale: [
-          [0, "#d7e5f2"],
-          [0.35, "#a8c0d8"],
-          [0.7, "#6e95bc"],
-          [1, "#0d4d8a"],
-        ],
-        marker: { line: { color: "#7d8ea3", width: 0.8 } },
-        hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
-      },
-    ];
-
-    if (projects.length) {
-      traces.push({
-        type: "scattergeo",
-        lat: projects.map((project) => project.latitude),
-        lon: projects.map((project) => project.longitude),
-        text: projects.map((project) => project.name),
-        mode: "markers",
-        marker: {
-          size: 9,
-          color: "#2de1c2",
-          line: { color: "#ffffff", width: 1.1 },
-          opacity: 0.9,
-        },
-        customdata: projects.map((project) => [
-          project.city || "-",
-          project.state || project.stateCode || "-",
-          project.productCategory || "Unspecified",
-        ]),
-        hovertemplate: "<b>%{text}</b><br>%{customdata[0]}, %{customdata[1]}<br>%{customdata[2]}<extra></extra>",
-        showlegend: false,
-      });
-    }
-
-    const labelPoints = Object.keys(stateCounts)
-      .filter((code) => stateCounts[code] > 0 && STATE_CENTROIDS[code])
-      .map((code) => ({ code, lat: STATE_CENTROIDS[code][0], lon: STATE_CENTROIDS[code][1] }));
-
-    if (labelPoints.length) {
-      traces.push({
-        type: "scattergeo",
-        lat: labelPoints.map((point) => point.lat),
-        lon: labelPoints.map((point) => point.lon),
-        text: labelPoints.map((point) => point.code),
-        mode: "text",
-        showlegend: false,
-        hoverinfo: "skip",
-        textfont: { size: 9, color: "#173047", family: "Plus Jakarta Sans, sans-serif" },
-      });
-    }
-
-    if (selectedState && STATE_CENTROIDS[selectedState]) {
-      const [selectedLat, selectedLon] = STATE_CENTROIDS[selectedState];
-
-      traces.push({
-        type: "choropleth",
-        locationmode: "USA-states",
-        locations: [selectedState],
-        z: [1],
-        colorscale: [
-          [0, "rgba(0,0,0,0)"],
-          [1, "rgba(0,0,0,0)"],
-        ],
-        showscale: false,
-        marker: { line: { color: "#f7c65c", width: 2.4 } },
-        hoverinfo: "skip",
-      });
-
-      if (nearestProject) {
-        traces.push({
-          type: "scattergeo",
-          lat: [selectedLat, nearestProject.latitude],
-          lon: [selectedLon, nearestProject.longitude],
-          mode: "lines",
-          line: { color: "#ffb347", width: 2.4 },
-          hoverinfo: "skip",
-          showlegend: false,
-        });
-      }
-    }
-
-    plotly.react(
-      ref.current,
-      traces,
-      {
-        geo: {
-          scope: "usa",
-          projection: { type: "albers usa" },
-          bgcolor: "rgba(0,0,0,0)",
-          showland: true,
-          landcolor: "#dce8f4",
-          lakecolor: "rgba(0,0,0,0)",
-          subunitcolor: "#7d8ea3",
-        },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
-        margin: { l: 0, r: 0, t: 0, b: 0 },
-      },
-      { displayModeBar: false, responsive: true },
-    );
-
-    const handleClick = (event: { points?: Array<{ location?: string; text?: string }> }) => {
-      const point = event.points?.[0];
-      if (!point) return;
-      const candidate = point.location || point.text || "";
-      if (STATE_CENTROIDS[candidate]) {
-        onStateSelect(candidate);
-      }
-    };
-
-    const target = ref.current as any;
-    if (target?.removeListener) {
-      target.removeListener("plotly_click", handleClick);
-    }
-    if (target?.on) {
-      target.on("plotly_click", handleClick);
-    }
-
-    return () => {
-      if (ref.current && plotly) {
-        const cleanupTarget = ref.current as any;
-        if (cleanupTarget?.removeListener) {
-          cleanupTarget.removeListener("plotly_click", handleClick);
-        }
-        plotly.purge(ref.current);
-      }
-    };
-  }, [nearestProject, projects, selectedState, stateCounts]);
+function StateDetailPanel({
+  selectedState,
+  projectCount,
+  totalSavings,
+  nearestProject,
+  stateDemographics,
+}: {
+  selectedState: string;
+  projectCount: number;
+  totalSavings: number;
+  nearestProject: ProjectWithDistance | null;
+  stateDemographics: SalesMapperDemographics["states"][number] | null;
+}) {
+  const hasSelection = selectedState !== DEFAULT_REFERENCE_STATE;
+  const stateLabel = hasSelection ? STATE_CODE_TO_NAME[selectedState] || selectedState : "All States";
+  const stateProductSummary = buildStateProductSummary(nearestProject ? [nearestProject] : []);
+  const stateProjectSummary = nearestProject?.projectSummary || nearestProject?.description || null;
+  const stateTimeline = nearestProject?.projectTimeline || null;
+  const stateSubcontractor = nearestProject?.subcontractorInfo || null;
+  const stateAssociatedPerson = nearestProject?.associatedPerson || null;
 
   return (
-    <SurfaceCard
-      title="U.S. Projects"
-      subtitle="Coverage by project state with mapped site pins and the selected-state route"
-      className="min-h-[620px]"
-    >
-      <div ref={ref} className="h-[540px] w-full" />
-    </SurfaceCard>
+    <div>
+      {hasSelection ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-[#264764] bg-[#081a29] p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">{selectedState}</div>
+            <div className="mt-1 font-display text-2xl font-semibold text-white">{stateLabel}</div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+              <div className="rounded-xl border border-[#173047] bg-[#0b2235] p-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Population</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{formatCompactInteger(stateDemographics?.population)}</div>
+              </div>
+              <div className="rounded-xl border border-[#173047] bg-[#0b2235] p-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Median Income</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{formatCurrency(stateDemographics?.medianHouseholdIncome)}</div>
+              </div>
+              <div className="rounded-xl border border-[#173047] bg-[#0b2235] p-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Mapped Projects</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{formatNumber(projectCount)}</div>
+              </div>
+              <div className="rounded-xl border border-[#173047] bg-[#0b2235] p-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">State Savings</div>
+                <div className="mt-2 text-2xl font-semibold text-white">{formatCurrency(totalSavings)}</div>
+              </div>
+              <div className="rounded-xl border border-[#173047] bg-[#0b2235] p-3">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Nearest Project</div>
+                <div className="mt-2 text-lg font-semibold text-white">{nearestProject ? formatMiles(nearestProject.distanceMiles) : "-"}</div>
+              </div>
+            </div>
+          </div>
+
+          {nearestProject ? (
+            <div className="rounded-2xl border border-[#173047] bg-[#071723] p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Closest Match</div>
+              <div className="mt-2 w-full rounded-xl border border-[#29506d] bg-[#0b2235] p-3 text-left">
+                <div className="font-semibold text-white">{nearestProject.name}</div>
+                <div className="mt-1 text-sm text-slate-300">
+                  {nearestProject.city || "-"}, {nearestProject.stateCode || nearestProject.state || "-"}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+                  <span className="rounded-full border border-[#2d556f] px-2 py-1">{formatMiles(nearestProject.distanceMiles)}</span>
+                  <span className="rounded-full border border-[#2d556f] px-2 py-1">{nearestProject.productCategory || "Unspecified"}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3">
+            <DetailSection
+              label="Project Summary"
+              value={stateProjectSummary}
+              placeholder="State-level summary will appear here when workbook project summary data is added."
+            />
+            <DetailSection
+              label="Project Timeline"
+              value={stateTimeline}
+              placeholder="Timeline details will appear here when the workbook includes schedule or project timeline columns."
+            />
+            <DetailSection
+              label="Products"
+              value={stateProductSummary}
+              placeholder="Products used for the selected state will appear here as workbook product detail improves."
+            />
+            <DetailSection
+              label="Subcontractor Info"
+              value={stateSubcontractor}
+              placeholder="Subcontractor information will appear here when the workbook includes contractor fields."
+            />
+            <DetailSection
+              label="Associated Person"
+              value={stateAssociatedPerson}
+              placeholder="Associated sales/contact person will appear here when workbook contact fields are available."
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-[#264764] bg-[#061523] p-6 text-center text-sm text-slate-400">
+          Select a state to keep the full USA map fixed while highlighting that state and showing its project details here.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectDetailPanel({
+  selectedProject,
+  selectedState,
+}: {
+  selectedProject: MappedProject;
+  selectedState: string;
+}) {
+  return (
+    <div className="space-y-4">
+      {getPrimaryImage(selectedProject.images) ? (
+        <img
+          src={getPrimaryImage(selectedProject.images) || ""}
+          alt={`${selectedProject.name} image`}
+          className="h-40 w-full rounded-xl border border-[#173047] object-cover sm:h-56"
+          loading="lazy"
+        />
+      ) : null}
+
+      <div className="flex flex-wrap gap-2 text-xs text-slate-200">
+        <span className="rounded-full border border-[#27445c] bg-[#071d30] px-3 py-2">
+          {selectedProject.productCategory || "Unspecified category"}
+        </span>
+        <span className="rounded-full border border-[#27445c] bg-[#071d30] px-3 py-2">
+          {selectedProject.projectType || "Unspecified type"}
+        </span>
+        <span className="rounded-full border border-[#27445c] bg-[#071d30] px-3 py-2">
+          {STATE_CENTROIDS[selectedState]
+            ? formatMiles(
+                haversineMiles(
+                  STATE_CENTROIDS[selectedState][0],
+                  STATE_CENTROIDS[selectedState][1],
+                  selectedProject.latitude,
+                  selectedProject.longitude,
+                ),
+              )
+            : "Select a reference state"}
+        </span>
+      </div>
+
+      {selectedProject.description ? (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Description</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-200">{selectedProject.description}</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <DetailSection
+          label="Project Summary"
+          value={selectedProject.projectSummary || selectedProject.description}
+          placeholder="Project summary will appear here when the workbook includes a summary column."
+        />
+        <DetailSection
+          label="Project Timeline"
+          value={selectedProject.projectTimeline}
+          placeholder="Project timeline will appear here when schedule data is added to the workbook."
+        />
+        <DetailSection
+          label="Products"
+          value={selectedProject.productsUsed || selectedProject.productCategory}
+          placeholder="Detailed products used will appear here when the workbook includes them."
+        />
+        <DetailSection
+          label="Subcontractor Info"
+          value={selectedProject.subcontractorInfo}
+          placeholder="Subcontractor details will appear here when workbook contractor data is available."
+        />
+        <DetailSection
+          label="Associated Person"
+          value={selectedProject.associatedPerson}
+          placeholder="Associated person or sales contact will appear here when contact data is available."
+        />
+      </div>
+
+      {selectedProject.challenge ? (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Challenge</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-200">{selectedProject.challenge}</p>
+        </div>
+      ) : null}
+
+      {selectedProject.resolution ? (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Resolution</div>
+          <p className="mt-2 text-sm leading-relaxed text-slate-200">{selectedProject.resolution}</p>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-3">
+        <a
+          href={getCaseStudyUrl(selectedProject).url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-[14px] border border-[#33597b] bg-[#0d2841] px-4 py-2 text-sm font-medium text-slate-100 transition hover:bg-[#123453]"
+        >
+          {getCaseStudyUrl(selectedProject).exact ? "Open Case Study" : "Browse Case Study"}
+          <ExternalLink className="h-4 w-4" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function SalesMapPanel({
+  projects,
+  selectedState,
+  onStateSelect,
+  onProjectSelect,
+  demographics,
+  metric,
+}: {
+  projects: MappedProject[];
+  selectedState: string;
+  onStateSelect: (stateCode: string) => void;
+  onProjectSelect: (project: MappedProject) => void;
+  demographics: SalesMapperDemographics | undefined;
+  metric: DemographicMetric;
+}) {
+  const selectedStateFipsPrefix =
+    selectedState !== DEFAULT_REFERENCE_STATE ? STATE_TO_FIPS[selectedState] || null : null;
+  const stateMetricLookup = useMemo(
+    () => new Map((demographics?.states || []).map((item) => [item.stateCode, getDemographicValue(item, metric)])),
+    [demographics, metric],
+  );
+  const countyMetricLookup = useMemo(
+    () => new Map((demographics?.counties || []).map((item) => [item.geoid, getDemographicValue(item, metric)])),
+    [demographics, metric],
+  );
+  const stateMetricValues = useMemo(
+    () => Array.from(stateMetricLookup.values()).filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
+    [stateMetricLookup],
+  );
+  const countyMetricValues = useMemo(
+    () => Array.from(countyMetricLookup.values()).filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
+    [countyMetricLookup],
+  );
+  const stateProjectCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    projects.forEach((project) => {
+      if (!project.stateCode) return;
+      counts.set(project.stateCode, (counts.get(project.stateCode) || 0) + 1);
+    });
+    return counts;
+  }, [projects]);
+  const stateMin = stateMetricValues.length ? Math.min(...stateMetricValues) : 0;
+  const stateMax = stateMetricValues.length ? Math.max(...stateMetricValues) : 1;
+  const countyMin = countyMetricValues.length ? Math.min(...countyMetricValues) : 0;
+  const countyMax = countyMetricValues.length ? Math.max(...countyMetricValues) : 1;
+  const maxStateProjectCount = useMemo(() => Math.max(...Array.from(stateProjectCounts.values()), 1), [stateProjectCounts]);
+
+  const normalizeMetric = (value: number | null | undefined, min: number, max: number) => {
+    if (value == null || !Number.isFinite(value)) return 0;
+    if (metric === "population") {
+      const logMin = Math.log10(Math.max(min, 1));
+      const logMax = Math.log10(Math.max(max, 1));
+      const logValue = Math.log10(Math.max(value, 1));
+      if (logMax === logMin) return 0.5;
+      return (logValue - logMin) / (logMax - logMin);
+    }
+    if (max === min) return 0.5;
+    return (value - min) / (max - min);
+  };
+
+  const getStateFill = (stateCode: string | undefined, isSelected: boolean) => {
+    const count = stateCode ? stateProjectCounts.get(stateCode) || 0 : 0;
+    if (!count) return "rgba(255, 255, 255, 0)";
+    const intensity = count / maxStateProjectCount;
+    const tint = mixColor([202, 244, 210], [30, 163, 74], intensity);
+    if (isSelected) return tint.replace("rgb", "rgba").replace(")", ", 0.32)");
+    return tint.replace("rgb", "rgba").replace(")", ", 0.22)");
+  };
+
+  const getCountyFill = (countyGeoid: string, isSelected: boolean) => {
+    if (!isSelected) return "rgba(9, 23, 36, 0.16)";
+    const value = countyMetricLookup.get(countyGeoid);
+    const normalized = normalizeMetric(value, countyMin, countyMax);
+    if (value == null) return isSelected ? "rgba(221, 239, 226, 0.92)" : "rgba(242, 247, 243, 0.92)";
+    const base = mixColor([242, 247, 243], [120, 203, 143], normalized);
+    return isSelected ? base.replace("rgb", "rgba").replace(")", ", 0.98)") : base.replace("rgb", "rgba").replace(")", ", 0.94)");
+  };
+
+  return (
+    <Card className="min-h-[500px] overflow-hidden rounded-[18px] border-[#173047] bg-[#020b14] text-white shadow-[0_16px_30px_rgba(0,0,0,0.22)] sm:min-h-[620px] lg:min-h-[820px] xl:min-h-[940px]">
+      <CardContent className="relative h-[430px] p-0 sm:h-[560px] lg:h-[740px] xl:h-[880px]">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[3] bg-gradient-to-b from-[#020b14] via-[#020b14]/84 to-transparent px-4 pb-6 pt-4 text-center sm:px-5 lg:pt-5">
+          <h3 className="font-display text-[1.15rem] font-semibold text-white">Projects</h3>
+          <p className="text-sm text-slate-400">
+            {`Real census ${getMetricLabel(metric).toLowerCase()} by county with district lines and project pins.`}
+          </p>
+        </div>
+        <div className="h-full w-full pt-8 sm:pt-10 lg:pt-12">
+          <ComposableMap
+            projection="geoAlbersUsa"
+            projectionConfig={{ scale: 1685 }}
+            width={1320}
+            height={860}
+            style={{ width: "100%", height: "100%" }}
+          >
+            <Geographies geography={US_COUNTIES_TOPOJSON_URL}>
+              {({ geographies }: { geographies: any[] }) =>
+                geographies.map((geo: any) => {
+                  const countyId = String(geo.id).padStart(5, "0");
+                  const isInSelectedState = selectedStateFipsPrefix ? countyId.startsWith(selectedStateFipsPrefix) : false;
+
+                  return (
+                    <Geography
+                      key={`county-${geo.rsmKey}`}
+                      geography={geo}
+                      className="sales-map-county"
+                      style={{
+                        default: {
+                          fill: getCountyFill(countyId, isInSelectedState),
+                          stroke: isInSelectedState ? "rgba(255, 246, 190, 0.92)" : "rgba(116, 147, 125, 0.62)",
+                          strokeWidth: isInSelectedState ? 0.7 : 0.46,
+                          outline: "none",
+                        },
+                        hover: {
+                          fill: getCountyFill(countyId, isInSelectedState),
+                          stroke: isInSelectedState ? "rgba(255, 246, 190, 0.96)" : "rgba(138, 174, 148, 0.78)",
+                          strokeWidth: isInSelectedState ? 0.76 : 0.5,
+                          outline: "none",
+                        },
+                        pressed: {
+                          fill: getCountyFill(countyId, isInSelectedState),
+                          stroke: isInSelectedState ? "rgba(255, 246, 190, 0.96)" : "rgba(138, 174, 148, 0.78)",
+                          strokeWidth: isInSelectedState ? 0.76 : 0.5,
+                          outline: "none",
+                        },
+                      }}
+                    />
+                  );
+                })
+              }
+            </Geographies>
+
+            <Geographies geography={US_STATES_TOPOJSON_URL}>
+              {({ geographies }: { geographies: any[] }) =>
+                geographies.map((geo: any) => {
+                  const stateCode = FIPS_TO_STATE_CODE[String(geo.id).padStart(2, "0")];
+                  const isSelected = stateCode === selectedState;
+                  const fill = getStateFill(stateCode, isSelected);
+
+                  return (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      onClick={() => (stateCode ? onStateSelect(stateCode) : null)}
+                      className="sales-map-state"
+                      style={{
+                        default: {
+                          fill,
+                          stroke: isSelected ? "#f7e58d" : "rgba(95, 142, 108, 0.86)",
+                          strokeWidth: isSelected ? 2.2 : 1.1,
+                          outline: "none",
+                        },
+                        hover: {
+                          fill,
+                          stroke: "#f7e58d",
+                          strokeWidth: isSelected ? 2.4 : 1.24,
+                          outline: "none",
+                          cursor: stateCode ? "pointer" : "default",
+                        },
+                        pressed: {
+                          fill,
+                          stroke: "#f7e58d",
+                          strokeWidth: 2.4,
+                          outline: "none",
+                        },
+                      }}
+                    />
+                  );
+                })
+              }
+            </Geographies>
+
+            {demographics?.districtGeoJson ? (
+              <Geographies geography={demographics.districtGeoJson}>
+                {({ geographies }: { geographies: any[] }) =>
+                  geographies.map((geo: any) => {
+                    const districtStateCode = FIPS_TO_STATE_CODE[String(geo.properties?.STATE || "").padStart(2, "0")];
+                    const isSelectedDistrictState = districtStateCode === selectedState;
+
+                    return (
+                      <Geography
+                        key={`district-${geo.rsmKey}`}
+                        geography={geo}
+                        className="sales-map-district"
+                        style={{
+                        default: {
+                          fill: "transparent",
+                          stroke: isSelectedDistrictState ? "rgba(247, 229, 141, 0.95)" : "rgba(58, 118, 76, 0.48)",
+                          strokeWidth: isSelectedDistrictState ? 0.92 : 0.56,
+                          outline: "none",
+                        },
+                        hover: {
+                          fill: "transparent",
+                          stroke: isSelectedDistrictState ? "rgba(247, 229, 141, 0.98)" : "rgba(74, 144, 93, 0.58)",
+                          strokeWidth: isSelectedDistrictState ? 0.98 : 0.62,
+                          outline: "none",
+                        },
+                        pressed: {
+                          fill: "transparent",
+                          stroke: isSelectedDistrictState ? "rgba(247, 229, 141, 0.98)" : "rgba(74, 144, 93, 0.58)",
+                          strokeWidth: isSelectedDistrictState ? 0.98 : 0.62,
+                          outline: "none",
+                        },
+                        }}
+                      />
+                    );
+                  })
+                }
+              </Geographies>
+            ) : null}
+
+            {US_STATES.map(([code]) => {
+              const centroid = STATE_CENTROIDS[code];
+              if (!centroid) return null;
+              const isSelected = code === selectedState;
+              return (
+                <Marker key={`label-${code}`} coordinates={[centroid[1], centroid[0]]}>
+                  {isSelected ? <circle r={14} fill="rgba(247,229,141,0.26)" stroke="#f7e58d" strokeWidth={2} /> : null}
+                  <text
+                    textAnchor="middle"
+                    y={4}
+                    style={{
+                      fontFamily: "Plus Jakarta Sans, sans-serif",
+                      fontSize: isSelected ? "14px" : "10px",
+                      fontWeight: 800,
+                      fill: "#ffffff",
+                      pointerEvents: "none",
+                      paintOrder: "stroke",
+                      stroke: isSelected ? "rgba(24, 35, 28, 0.72)" : "rgba(12, 18, 24, 0.78)",
+                      strokeWidth: isSelected ? "1.2px" : "1px",
+                    }}
+                  >
+                    {code}
+                  </text>
+                </Marker>
+              );
+            })}
+
+            {projects.map((project) => (
+              <Marker key={project.id} coordinates={[project.longitude, project.latitude]}>
+                <g className="sales-map-pin" onClick={() => onProjectSelect(project)} style={{ cursor: "pointer" }}>
+                  <circle className="sales-map-pin-pulse" r={16} />
+                  <image
+                    href="/leaf-project-marker.svg"
+                    x={-13}
+                    y={-39}
+                    width={26}
+                    height={39}
+                    preserveAspectRatio="xMidYMid meet"
+                  />
+                  <circle r={10} fill="transparent" />
+                </g>
+              </Marker>
+            ))}
+          </ComposableMap>
+        </div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-10 bg-gradient-to-t from-[#020b14] to-transparent" />
+      </CardContent>
+    </Card>
   );
 }
 
 export default function SalesMapper() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
-  const [selectedState, setSelectedState] = useState("IN");
+  const [selectedState, setSelectedState] = useState(DEFAULT_REFERENCE_STATE);
+  const [selectedProject, setSelectedProject] = useState<MappedProject | null>(null);
+  const [demographicMetric, setDemographicMetric] = useState<DemographicMetric>("population");
   const { data, isLoading, isFetching, error } = useSalesMapperData();
+  const { data: demographics, error: demographicsError } = useSalesMapperDemographics();
   const errorMessage = error instanceof Error ? error.message : "There was an error loading the Projects.";
+  const demographicsErrorMessage =
+    demographicsError instanceof Error ? demographicsError.message : "There was an error loading the Census demographics.";
+  const referenceState = resolveReferenceState(data, selectedState);
 
   useEffect(() => {
     if (!data) return;
-    setSelectedState((current) => (STATE_CODE_TO_NAME[current] ? current : data.defaultState || "IN"));
+    setSelectedState((current) => {
+      if (current === DEFAULT_REFERENCE_STATE) {
+        return resolveReferenceState(data, current);
+      }
+      return STATE_CODE_TO_NAME[current] ? current : resolveReferenceState(data, DEFAULT_REFERENCE_STATE);
+    });
   }, [data]);
 
   const filteredProjects = useMemo(() => {
@@ -467,19 +952,32 @@ export default function SalesMapper() {
   );
 
   const nearestProjects = useMemo(() => {
-    const centroid = STATE_CENTROIDS[selectedState];
+    const centroid = STATE_CENTROIDS[referenceState];
     if (!centroid) return [];
 
     return mappedProjects
       .map((project) => ({
         ...project,
         distanceMiles: haversineMiles(centroid[0], centroid[1], project.latitude, project.longitude),
+        isInSelectedState: project.stateCode === referenceState,
       }))
-      .sort((a, b) => a.distanceMiles - b.distanceMiles || a.name.localeCompare(b.name));
-  }, [mappedProjects, selectedState]);
+      .sort(
+        (a, b) =>
+          Number(b.isInSelectedState) - Number(a.isInSelectedState) ||
+          a.distanceMiles - b.distanceMiles ||
+          a.name.localeCompare(b.name),
+      );
+  }, [mappedProjects, referenceState]);
 
   const nearestProject = nearestProjects[0] || null;
-  const primaryImage = nearestProject ? getPrimaryImage(nearestProject.images) : null;
+  const selectedStateProjects = useMemo(
+    () => (referenceState === DEFAULT_REFERENCE_STATE ? [] : mappedProjects.filter((project) => project.stateCode === referenceState)),
+    [mappedProjects, referenceState],
+  );
+  const selectedStateSavings = useMemo(
+    () => selectedStateProjects.reduce((sum, project) => sum + safeNumber(project.annualCostSavingsUsd), 0),
+    [selectedStateProjects],
+  );
 
   const stateCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -499,6 +997,15 @@ export default function SalesMapper() {
     [stateCounts],
   );
   const coverageMax = Math.max(...coverage.map((item) => item.value), 1);
+  const selectedStateDemographics = useMemo(
+    () => demographics?.states.find((item) => item.stateCode === referenceState) || null,
+    [demographics, referenceState],
+  );
+  const detailsOpen = Boolean(selectedProject) || selectedState !== DEFAULT_REFERENCE_STATE;
+  const closeDetails = () => {
+    setSelectedProject(null);
+    setSelectedState(DEFAULT_REFERENCE_STATE);
+  };
 
   const summary = useMemo(
     () => ({
@@ -536,18 +1043,18 @@ export default function SalesMapper() {
 
   return (
     <AppLayout sectionLabel="Projects" showDashboardNav>
-      <div className="w-full min-w-0 space-y-5 pb-8">
+      <div className="w-full min-w-0 space-y-4 pb-6 sm:space-y-5 sm:pb-8">
         <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-end">
           <div className="space-y-2">
             <div className="text-xs font-semibold uppercase tracking-[0.26em] text-muted-foreground">IKIO Projects</div>
-            <h1 className="text-3xl font-display font-bold tracking-tight text-foreground md:text-[2.2rem]">
-              Coverage and nearest-project command center
+            <h1 className="text-2xl font-display font-bold tracking-tight text-foreground sm:text-3xl md:text-[2.2rem]">
+              Projects Overview
             </h1>
-            <p className="max-w-4xl text-muted-foreground">
-              Project coverage by state, mapped site pins, and the nearest reference project from the selected state centroid.
+            <p className="max-w-4xl text-sm text-muted-foreground sm:text-base">
+              Coverage, pins, and nearest project.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-slate-300 2xl:justify-end">
+          <div className="flex flex-wrap gap-2 text-[11px] text-slate-300 sm:text-xs 2xl:justify-end">
             <span className="rounded-full border border-[#173047] bg-[#06192a] px-3 py-2">Updated {formatTimestamp(data.generatedAt)}</span>
             <span className="rounded-full border border-[#173047] bg-[#06192a] px-3 py-2">
               {formatNumber(summary.mappedProjectCount)} mapped projects
@@ -565,8 +1072,14 @@ export default function SalesMapper() {
           </div>
         ) : null}
 
-        <section className="w-full rounded-[30px] border border-[#17334c] bg-[#052642] p-3 shadow-[0_26px_60px_rgba(2,14,24,0.26)] md:p-4 2xl:p-5">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {demographicsError ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+            Census demographics failed to load: {demographicsErrorMessage}.
+          </div>
+        ) : null}
+
+        <section className="w-full rounded-[22px] border border-[#17334c] bg-[#052642] p-2.5 shadow-[0_26px_60px_rgba(2,14,24,0.26)] sm:rounded-[30px] sm:p-3 md:p-4 2xl:p-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <SelectCard
               label="Project Type"
               value={filters.projectType}
@@ -583,8 +1096,17 @@ export default function SalesMapper() {
               label="Reference State"
               value={selectedState}
               options={US_STATES.map(([value, label]) => ({ value, label: `${value} - ${label}` }))}
+              onChange={(value) => {
+                setSelectedProject(null);
+                setSelectedState(value);
+              }}
+            />
+            <SelectCard
+              label="Metric"
+              value={demographicMetric}
+              options={DEMOGRAPHIC_METRIC_OPTIONS}
               includeAll={false}
-              onChange={setSelectedState}
+              onChange={(value) => setDemographicMetric(value as DemographicMetric)}
             />
             <div className="flex items-center rounded-[18px] border border-[#1a3954] bg-[#071d30] p-3 shadow-[0_12px_24px_rgba(0,0,0,0.22)]">
               <Button
@@ -592,7 +1114,8 @@ export default function SalesMapper() {
                 className="h-12 w-full rounded-[14px] border border-[#33597b] bg-[#0d2841] text-slate-100 hover:bg-[#123453]"
                 onClick={() => {
                   setFilters(DEFAULT_FILTERS);
-                  setSelectedState(data.defaultState || "IN");
+                  setSelectedProject(null);
+                  setSelectedState(resolveReferenceState(data, DEFAULT_REFERENCE_STATE));
                 }}
               >
                 Clear
@@ -600,7 +1123,7 @@ export default function SalesMapper() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MetricTile label="Projects" value={formatNumber(summary.projectCount)} hint="Filtered projects" icon={Shapes} />
             <MetricTile label="Mapped" value={formatNumber(summary.mappedProjectCount)} hint="Projects with coordinates" icon={MapPinned} />
             <MetricTile label="Coverage" value={formatNumber(summary.coveredStateCount)} hint="States represented" icon={Route} />
@@ -612,147 +1135,82 @@ export default function SalesMapper() {
             />
           </div>
 
-          <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]">
+          <div className="mt-4">
             <SalesMapPanel
-              stateCounts={stateCounts}
               projects={mappedProjects}
-              selectedState={selectedState}
-              nearestProject={nearestProject}
-              onStateSelect={setSelectedState}
+              selectedState={referenceState}
+              onStateSelect={(stateCode) => {
+                setSelectedProject(null);
+                setSelectedState(stateCode);
+              }}
+              onProjectSelect={setSelectedProject}
+              demographics={demographics}
+              metric={demographicMetric}
             />
+          </div>
 
-            <div className="grid gap-4">
-              <SurfaceCard
-                title="Nearest Mapped Project"
-                subtitle={`Closest mapped projects from ${STATE_CODE_TO_NAME[selectedState] || selectedState}`}
-              >
-                {nearestProject ? (
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-[#1c3d53] bg-gradient-to-br from-[#10283c] to-[#0c1a29] p-4">
-                      <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Closest project</div>
-                      {primaryImage ? (
-                        <img
-                          src={primaryImage}
-                          alt={`${nearestProject.name} image`}
-                          className="mt-3 h-40 w-full rounded-xl border border-[#173047] object-cover"
-                          loading="lazy"
+          <div className="mt-4">
+            <SurfaceCard title="State Coverage" subtitle="Top states ranked by mapped project count">
+              {coverage.length ? (
+                <div className="space-y-3">
+                  {coverage.map((item) => (
+                    <div key={item.code} className="grid grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[88px_minmax(0,1fr)_auto] sm:gap-3">
+                      <div>
+                        <div className="font-semibold text-slate-100">{item.code}</div>
+                        <div className="text-xs text-slate-400">{item.label}</div>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#2de1c2] to-[#2792f0]"
+                          style={{ width: `${(item.value / coverageMax) * 100}%` }}
                         />
-                      ) : null}
-                      <div className="mt-2 font-display text-2xl font-bold text-white">{nearestProject.name}</div>
-                      <div className="mt-2 text-sm text-slate-300">
-                        {(nearestProject.city || "-")}, {nearestProject.stateCode || nearestProject.state || "-"}
                       </div>
-                      <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-200">
-                        <span className="rounded-full border border-[#27445c] bg-[#071d30] px-3 py-2">
-                          {formatMiles(nearestProject.distanceMiles)}
-                        </span>
-                        <span className="rounded-full border border-[#27445c] bg-[#071d30] px-3 py-2">
-                          {nearestProject.productCategory || "Unspecified category"}
-                        </span>
-                      </div>
-                      {nearestProject.description ? (
-                        <div className="mt-4 text-sm text-slate-200">
-                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Description</div>
-                          <p className="mt-2 leading-relaxed">{nearestProject.description}</p>
-                        </div>
-                      ) : null}
-                      {nearestProject.challenge ? (
-                        <div className="mt-4 text-sm text-slate-200">
-                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Challenge</div>
-                          <p className="mt-2 leading-relaxed">{nearestProject.challenge}</p>
-                        </div>
-                      ) : null}
-                      {nearestProject.resolution ? (
-                        <div className="mt-4 text-sm text-slate-200">
-                          <div className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Resolution</div>
-                          <p className="mt-2 leading-relaxed">{nearestProject.resolution}</p>
-                        </div>
-                      ) : null}
+                      <div className="text-sm font-semibold text-white">{formatNumber(item.value)}</div>
                     </div>
-
-                    <div className="space-y-2">
-                      {nearestProjects.slice(0, 5).map((project, index) => (
-                        <div key={project.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#173047] bg-[#06192a] px-3 py-3">
-                          <div className="min-w-0">
-                            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">#{index + 1}</div>
-                            <div className="truncate font-semibold text-slate-100">{project.name}</div>
-                            <div className="truncate text-sm text-slate-400">
-                              {(project.city || "-")}, {project.stateCode || project.state || "-"}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="font-semibold text-white">{formatMiles(project.distanceMiles)}</div>
-                            <div className="text-xs text-slate-400">{project.zip || "No ZIP"}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex h-[320px] items-center justify-center text-sm text-slate-400">
-                    No mapped projects are available for the selected filters.
-                  </div>
-                )}
-              </SurfaceCard>
-
-              <SurfaceCard title="State Coverage" subtitle="Top states ranked by mapped project count">
-                {coverage.length ? (
-                  <div className="space-y-3">
-                    {coverage.map((item) => (
-                      <div key={item.code} className="grid grid-cols-[88px_minmax(0,1fr)_auto] items-center gap-3">
-                        <div>
-                          <div className="font-semibold text-slate-100">{item.code}</div>
-                          <div className="text-xs text-slate-400">{item.label}</div>
-                        </div>
-                        <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#2de1c2] to-[#2792f0]"
-                            style={{ width: `${(item.value / coverageMax) * 100}%` }}
-                          />
-                        </div>
-                        <div className="text-sm font-semibold text-white">{formatNumber(item.value)}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex h-[220px] items-center justify-center text-sm text-slate-400">
-                    No mapped states match the current filters.
-                  </div>
-                )}
-              </SurfaceCard>
-            </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex h-[220px] items-center justify-center text-sm text-slate-400">
+                  No mapped states match the current filters.
+                </div>
+              )}
+            </SurfaceCard>
           </div>
 
           <div className="mt-4">
             <SurfaceCard
-              title="Mapped Project Detail"
-              subtitle={`Closest mapped projects from ${STATE_CODE_TO_NAME[selectedState] || selectedState}`}
+              title="Nearest Project Table"
+              subtitle={
+                selectedState === DEFAULT_REFERENCE_STATE
+                  ? `Projects ranked across all states using ${STATE_CODE_TO_NAME[referenceState] || referenceState} as the distance reference.`
+                  : `Projects ranked from ${STATE_CODE_TO_NAME[selectedState] || selectedState}, with same-state matches shown first`
+              }
             >
-              <div className="max-h-[460px] overflow-auto rounded-2xl border border-[#173047]">
-                <Table className="min-w-[1400px] bg-[#071723] text-slate-100">
+              <div className="max-h-[520px] overflow-auto rounded-2xl border border-[#173047]">
+                <Table className="min-w-[920px] bg-[#071723] text-slate-100 lg:min-w-[1400px]">
                   <TableHeader className="sticky top-0 z-10 bg-[#173047] [&_th]:text-slate-200">
                     <TableRow className="hover:bg-transparent">
                       <TableHead>Project</TableHead>
-                      <TableHead>Image</TableHead>
+                      <TableHead className="hidden sm:table-cell">Image</TableHead>
                       <TableHead>City</TableHead>
                       <TableHead>State</TableHead>
-                      <TableHead>ZIP</TableHead>
+                      <TableHead className="hidden md:table-cell">ZIP</TableHead>
                       <TableHead>Distance</TableHead>
                       <TableHead>Category</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Challenge</TableHead>
-                      <TableHead>Resolution</TableHead>
-                      <TableHead>Savings</TableHead>
+                      <TableHead className="hidden xl:table-cell">Description</TableHead>
+                      <TableHead className="hidden xl:table-cell">Challenge</TableHead>
+                      <TableHead className="hidden xl:table-cell">Resolution</TableHead>
+                      <TableHead className="hidden lg:table-cell">Savings</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {nearestProjects.length ? (
-                      nearestProjects.slice(0, 12).map((item) => {
+                      nearestProjects.map((item) => {
                         const image = getPrimaryImage(item.images);
                         return (
                           <TableRow key={item.id} className="border-[#173047] hover:bg-[#0d2335]">
                             <TableCell className="font-medium text-slate-100">{item.name}</TableCell>
-                            <TableCell className="text-slate-200">
+                            <TableCell className="hidden text-slate-200 sm:table-cell">
                               {image ? (
                                 <img
                                   src={image}
@@ -766,19 +1224,19 @@ export default function SalesMapper() {
                             </TableCell>
                             <TableCell className="text-slate-200">{item.city || "-"}</TableCell>
                             <TableCell className="text-slate-200">{item.stateCode || item.state || "-"}</TableCell>
-                            <TableCell className="text-slate-200">{item.zip || "-"}</TableCell>
+                            <TableCell className="hidden text-slate-200 md:table-cell">{item.zip || "-"}</TableCell>
                             <TableCell className="font-semibold text-white">{formatMiles(item.distanceMiles)}</TableCell>
                             <TableCell className="text-slate-200">{item.productCategory || "-"}</TableCell>
-                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                            <TableCell className="hidden max-w-[260px] text-xs leading-relaxed text-slate-200 xl:table-cell">
                               {item.description || "-"}
                             </TableCell>
-                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                            <TableCell className="hidden max-w-[260px] text-xs leading-relaxed text-slate-200 xl:table-cell">
                               {item.challenge || "-"}
                             </TableCell>
-                            <TableCell className="max-w-[260px] text-xs leading-relaxed text-slate-200">
+                            <TableCell className="hidden max-w-[260px] text-xs leading-relaxed text-slate-200 xl:table-cell">
                               {item.resolution || "-"}
                             </TableCell>
-                            <TableCell className="text-slate-200">{formatCurrency(item.annualCostSavingsUsd)}</TableCell>
+                            <TableCell className="hidden text-slate-200 lg:table-cell">{formatCurrency(item.annualCostSavingsUsd)}</TableCell>
                           </TableRow>
                         );
                       })
@@ -796,6 +1254,44 @@ export default function SalesMapper() {
           </div>
         </section>
       </div>
+
+      <Sheet open={detailsOpen} onOpenChange={(open) => (!open ? closeDetails() : null)}>
+        <SheetContent
+          side="right"
+          overlayClassName="bg-transparent"
+          className="w-[min(92vw,520px)] overflow-y-auto border-[#173047] bg-[#071723] p-0 text-slate-100 sm:max-w-[520px]"
+          onPointerDownOutside={() => closeDetails()}
+          onInteractOutside={() => closeDetails()}
+          onEscapeKeyDown={() => closeDetails()}
+        >
+          <div className="p-5 sm:p-6">
+            <SheetHeader className="mb-5 text-left">
+              <SheetTitle className="font-display text-2xl text-white">
+                {selectedProject ? selectedProject.name : "Selected State"}
+              </SheetTitle>
+              <SheetDescription className="text-slate-400">
+                {selectedProject
+                  ? `${selectedProject.city || "-"}, ${selectedProject.stateCode || selectedProject.state || "-"} ${selectedProject.zip || ""}`
+                  : selectedState === DEFAULT_REFERENCE_STATE
+                    ? "Pick a state from the map."
+                    : `${STATE_CODE_TO_NAME[referenceState] || referenceState} demographics and nearest projects.`}
+              </SheetDescription>
+            </SheetHeader>
+
+            {selectedProject ? (
+              <ProjectDetailPanel selectedProject={selectedProject} selectedState={selectedState} />
+            ) : (
+              <StateDetailPanel
+                selectedState={referenceState}
+                projectCount={selectedStateProjects.length}
+                totalSavings={selectedStateSavings}
+                nearestProject={nearestProject}
+                stateDemographics={selectedStateDemographics}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppLayout>
   );
 }

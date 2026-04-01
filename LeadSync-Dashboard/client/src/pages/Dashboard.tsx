@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Legend,
+  LabelList,
   Line,
   Pie,
   PieChart,
@@ -34,6 +35,11 @@ const DEFAULT_FILTERS = {
 };
 
 const DONUT_COLORS = ["#7ac4ff", "#0d6fbc", "#8f2cc9", "#256e94", "#e250a6", "#4d8bb8"];
+const CHART_LABEL_STYLE = {
+  fill: "#e6eef7",
+  fontSize: 12,
+  fontWeight: 600,
+};
 
 function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Number(value || 0));
@@ -382,10 +388,10 @@ export default function Dashboard() {
           <div className="space-y-2">
             <div className="text-xs font-semibold uppercase tracking-[0.26em] text-muted-foreground">LeadSync dashboard</div>
             <h1 className="text-3xl font-display font-bold tracking-tight text-foreground md:text-[2.2rem]">
-              Campaign response command center
+              Campaign Overview
             </h1>
             <p className="max-w-4xl text-muted-foreground">
-              Live workbook analytics with the requested KPI strip, campaign filters, and U.S. map.
+              Live workbook KPIs, filters, and map.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-slate-300 2xl:justify-end">
@@ -481,7 +487,7 @@ export default function Dashboard() {
             <ChartCard title="Monthly Response" subtitle="Email sent versus lead responses by month">
               <div className="h-[320px] md:h-[340px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={monthlyResponse} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <ComposedChart data={monthlyResponse} margin={{ top: 26, right: 14, left: 0, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="4 6" vertical={false} />
                     <XAxis dataKey="label" tick={{ fill: "#c2d2e5", fontSize: 12 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: "#c2d2e5", fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -494,8 +500,20 @@ export default function Dashboard() {
                       }}
                     />
                     <Legend wrapperStyle={{ color: "#fff" }} />
-                    <Bar dataKey="emailSent" name="Email Sent" fill="#2792f0" radius={[10, 10, 0, 0]} />
-                    <Line type="monotone" dataKey="responses" name="Response" stroke="#1a2ab8" strokeWidth={3} dot={{ r: 4 }} />
+                    <Bar dataKey="emailSent" name="Email Sent" fill="#2792f0" radius={[10, 10, 0, 0]}>
+                      <LabelList dataKey="emailSent" position="top" offset={8} style={CHART_LABEL_STYLE} />
+                    </Bar>
+                    <Line
+                      type="monotone"
+                      dataKey="responses"
+                      name="Response"
+                      stroke="#b9c3ff"
+                      strokeWidth={3}
+                      dot={{ r: 4, fill: "#b9c3ff", stroke: "#b9c3ff" }}
+                      activeDot={{ r: 5, fill: "#ffffff", stroke: "#b9c3ff", strokeWidth: 2 }}
+                    >
+                      <LabelList dataKey="responses" position="top" offset={10} style={CHART_LABEL_STYLE} />
+                    </Line>
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -504,7 +522,7 @@ export default function Dashboard() {
             <ChartCard title="Agency Response" subtitle="Email sent and responses by campaign type">
               <div className="h-[320px] md:h-[340px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={agencyResponse} layout="vertical" margin={{ top: 10, right: 16, left: 12, bottom: 12 }}>
+                  <BarChart data={agencyResponse} layout="vertical" margin={{ top: 10, right: 56, left: 12, bottom: 12 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="4 6" horizontal={false} />
                     <XAxis type="number" tick={{ fill: "#c2d2e5", fontSize: 12 }} axisLine={false} tickLine={false} />
                     <YAxis
@@ -525,8 +543,12 @@ export default function Dashboard() {
                       }}
                     />
                     <Legend wrapperStyle={{ color: "#fff" }} />
-                    <Bar dataKey="emailSent" name="Email Sent" fill="#2792f0" radius={[0, 8, 8, 0]} />
-                    <Bar dataKey="responses" name="Response" fill="#b9c3ff" radius={[0, 8, 8, 0]} />
+                    <Bar dataKey="emailSent" name="Email Sent" fill="#2792f0" radius={[0, 8, 8, 0]}>
+                      <LabelList dataKey="emailSent" position="right" offset={8} style={CHART_LABEL_STYLE} />
+                    </Bar>
+                    <Bar dataKey="responses" name="Response" fill="#b9c3ff" radius={[0, 8, 8, 0]}>
+                      <LabelList dataKey="responses" position="right" offset={8} style={CHART_LABEL_STYLE} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>

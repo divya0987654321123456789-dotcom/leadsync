@@ -59,8 +59,11 @@ export function useDashboardWorkbook() {
       const data = await res.json();
       return parseWithLogging(api.dashboard.workbook.responses[200], data, "dashboard.workbook");
     },
-    refetchInterval: 5 * 60 * 1000,
-    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 
@@ -98,8 +101,11 @@ export function useDashboardWorkbookFiltered(filters?: DashboardWorkbookFilters)
       const data = await res.json();
       return parseWithLogging(api.dashboard.workbook.responses[200], data, "dashboard.workbook");
     },
-    refetchInterval: 5 * 60 * 1000,
-    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     placeholderData: (previousData) => previousData,
   });
 }
@@ -123,6 +129,28 @@ export function useSalesMapperData() {
     refetchInterval: 5 * 60 * 1000,
     staleTime: 60 * 1000,
     placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useSalesMapperDemographics() {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: [api.dashboard.salesMapperDemographics.path],
+    queryFn: async () => {
+      const res = await fetch(api.dashboard.salesMapperDemographics.path, { credentials: "include" });
+      if (res.status === 401) {
+        queryClient.setQueryData([api.auth.session.path], null);
+        throw new Error("Authentication required");
+      }
+      if (!res.ok) {
+        throw new Error(await parseErrorMessage(res, "Failed to fetch Projects demographics"));
+      }
+      const data = await res.json();
+      return parseWithLogging(api.dashboard.salesMapperDemographics.responses[200], data, "dashboard.salesMapperDemographics");
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    retry: 1,
   });
 }
 
