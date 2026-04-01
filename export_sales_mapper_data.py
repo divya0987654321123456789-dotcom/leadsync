@@ -9,7 +9,10 @@ from pathlib import Path
 import pgeocode
 
 BASE_DIR = Path(__file__).resolve().parent
-SOURCE_PATH = BASE_DIR / "Lead-Sync-Dashboard" / "Lead-Sync-Dashboard" / "IKIO_Final_With_Zip_And_Product_Category.csv"
+SOURCE_CANDIDATES = [
+    BASE_DIR / "Lead-Sync-Dashboard" / "Lead-Sync-Dashboard" / "Projects_Product_Category.csv",
+    BASE_DIR / "Lead-Sync-Dashboard" / "Lead-Sync-Dashboard" / "IKIO_Final_With_Zip_And_Product_Category.csv",
+]
 OUTPUT_PATH = BASE_DIR / "data" / "sales-mapper-data.json"
 NOMINATIM = pgeocode.Nominatim("us")
 
@@ -101,6 +104,16 @@ def normalize_zip(value: object) -> str | None:
     return digits[:5].zfill(5)
 
 
+def parse_coordinate(value: object) -> float | None:
+    raw = normalize_text(value)
+    if not raw:
+        return None
+    try:
+        return round(float(raw), 4)
+    except ValueError:
+        return None
+
+
 def parse_number(value: object) -> float | None:
     raw = normalize_text(value)
     if not raw or raw == "-":
@@ -116,6 +129,13 @@ def load_rows(path: Path) -> list[dict[str, str]]:
     # Source CSV uses Windows-1252 characters (e.g., smart quotes).
     with path.open("r", encoding="cp1252", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def resolve_source_path() -> Path:
+    for candidate in SOURCE_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return SOURCE_CANDIDATES[0]
 
 
 def parse_images(value: object) -> list[str] | None:
@@ -186,7 +206,11 @@ def build_payload(source_path: Path) -> dict[str, object]:
     for index, row in enumerate(rows, start=1):
         state_code = normalize_state(row.get("State"))
         zip_code = normalize_zip(row.get("ZIP Code"))
+        explicit_latitude = parse_coordinate(row.get("Latitude"))
+        explicit_longitude = parse_coordinate(row.get("Longitude"))
         coordinates = zip_lookup.get(zip_code or "")
+        latitude = explicit_latitude if explicit_latitude is not None else (coordinates["latitude"] if coordinates else None)
+        longitude = explicit_longitude if explicit_longitude is not None else (coordinates["longitude"] if coordinates else None)
 
         projects.append(
             {
@@ -208,8 +232,8 @@ def build_payload(source_path: Path) -> dict[str, object]:
                 "description": normalize_text(row.get("Description")) or None,
                 "challenge": normalize_text(row.get("Challenge")) or None,
                 "resolution": normalize_text(row.get("Resolution")) or None,
-                "latitude": coordinates["latitude"] if coordinates else None,
-                "longitude": coordinates["longitude"] if coordinates else None,
+                "latitude": latitude,
+                "longitude": longitude,
             }
         )
 
@@ -250,7 +274,8 @@ def build_payload(source_path: Path) -> dict[str, object]:
 
 
 def main() -> None:
-    payload = build_payload(SOURCE_PATH)
+    source_path = resolve_source_path()
+    payload = build_payload(source_path)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with OUTPUT_PATH.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)

@@ -201,8 +201,20 @@ const STATE_TO_FIPS = {
   WY: "56",
 };
 const COUNTY_GEOJSON_URL = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json";
-const IKIO_MARKER_LOGO_PATH = "./ikio-marker-logo.svg";
+const IKIO_MARKER_LOGO_PATH = "./leaf-project-marker.svg";
 let countyGeoJsonPromise = null;
+const LEAD_MAP_VIEWBOX = { width: 920, height: 560 };
+const LEAD_MAP_BOUNDS = {
+  minLat: 24,
+  maxLat: 50,
+  minLon: -125,
+  maxLon: -66,
+};
+const LEAD_MAP_INSETS = {
+  AK: { x: 116, y: 456 },
+  HI: { x: 220, y: 494 },
+  DC: { x: 788, y: 312 },
+};
 
 const DEFAULT_FILTERS = {
   campaignType: "All",
@@ -315,6 +327,54 @@ async function getCountyBoundaryLines(stateCodes) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function projectLeadMapPoint(stateCode) {
+  if (LEAD_MAP_INSETS[stateCode]) return LEAD_MAP_INSETS[stateCode];
+  const centroid = STATE_CENTROIDS[stateCode];
+  if (!centroid) return { x: LEAD_MAP_VIEWBOX.width / 2, y: LEAD_MAP_VIEWBOX.height / 2 };
+
+  const [lat, lon] = centroid;
+  const xRatio = (lon - LEAD_MAP_BOUNDS.minLon) / (LEAD_MAP_BOUNDS.maxLon - LEAD_MAP_BOUNDS.minLon);
+  const yRatio = (LEAD_MAP_BOUNDS.maxLat - lat) / (LEAD_MAP_BOUNDS.maxLat - LEAD_MAP_BOUNDS.minLat);
+
+  return {
+    x: 108 + xRatio * 694,
+    y: 82 + yRatio * 274,
+  };
+}
+
+function buildLeadMapModel(stateCounts) {
+  const values = Object.values(stateCounts || {});
+  const maxValue = Math.max(...values, 1);
+
+  const nodes = US_STATES.map(([code, name], index) => {
+    const count = stateCounts[code] || 0;
+    const position = projectLeadMapPoint(code);
+    return {
+      code,
+      name,
+      count,
+      active: count > 0,
+      x: position.x,
+      y: position.y,
+      radius: count ? clamp(10 + (count / maxValue) * 18, 10, 28) : 7,
+      delay: `${index * 45}ms`,
+    };
+  });
+
+  const connectorNodes = [...nodes]
+    .filter((node) => node.active)
+    .sort((a, b) => b.count - a.count || a.code.localeCompare(b.code))
+    .slice(0, 8);
+
+  const connectors = connectorNodes.slice(1).map((node, index) => ({
+    from: connectorNodes[index],
+    to: node,
+    delay: `${index * 140}ms`,
+  }));
+
+  return { nodes, connectors, maxValue };
 }
 
 function getStateMapViewport(selectedState, projects) {
@@ -952,93 +1012,76 @@ function LeadsTable({ items }) {
 }
 
 function StateMapPanel({ stateCounts }) {
-  const mapRef = useRef(null);
-
-  useEffect(() => {
-    if (!mapRef.current || !window.Plotly) return;
-
-    const locations = US_STATES.map(([code]) => code);
-    const zValues = locations.map((code) => stateCounts[code] || 0);
-    const labelLocations = locations;
-    const maxValue = Math.max(...zValues, 1);
-
-    window.Plotly.react(
-      mapRef.current,
-      [
-        {
-          type: "choropleth",
-          locationmode: "USA-states",
-          locations,
-          z: zValues,
-          zmin: 0,
-          zmax: maxValue,
-          showscale: false,
-          colorscale: [
-            [0, "#d7e5f2"],
-            [0.35, "#a8c0d8"],
-            [0.7, "#6e95bc"],
-            [1, "#0d4d8a"],
-          ],
-          marker: {
-            line: {
-              color: "#7d8ea3",
-              width: 0.8,
-            },
-          },
-          hovertemplate: "%{location}: %{z} records<extra></extra>",
-        },
-        {
-          type: "scattergeo",
-          locationmode: "USA-states",
-          locations: labelLocations,
-          text: labelLocations,
-          mode: "text",
-          showlegend: false,
-          hoverinfo: "skip",
-          textfont: {
-            size: 8,
-            color: "#233649",
-            family: "Space Grotesk, sans-serif",
-          },
-        },
-      ],
-      {
-        geo: {
-          scope: "usa",
-          projection: { type: "albers usa" },
-          bgcolor: "rgba(0,0,0,0)",
-          showland: true,
-          landcolor: "#dce8f4",
-          lakecolor: "rgba(0,0,0,0)",
-          subunitcolor: "#7d8ea3",
-        },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
-        margin: { l: 0, r: 0, t: 0, b: 0 },
-      },
-      {
-        displayModeBar: false,
-        responsive: true,
-      },
-    );
-
-    return () => {
-      if (mapRef.current && window.Plotly) {
-        window.Plotly.purge(mapRef.current);
-      }
-    };
-  }, [stateCounts]);
+  const { nodes, connectors, maxValue } = useMemo(() => buildLeadMapModel(stateCounts), [stateCounts]);
+  const activeStates = nodes.filter((node) => node.active).length;
 
   return html`
     <section className="panel map-panel">
       <div className="panel-head">
         <div>
           <h3 className="panel-title">Response Map</h3>
-          <p className="panel-caption">Lead response volume by state with in-map abbreviations</p>
+          <p className="panel-caption">Smooth U.S. state node map with abbreviations for every state</p>
+        </div>
+        <div className="map-meta">
+          <span className="map-meta-pill">${formatNumber(activeStates)} active states</span>
+          <span className="map-meta-pill">Peak ${formatNumber(maxValue)} records</span>
         </div>
       </div>
       <div className="map-wrap">
-        <div ref=${mapRef} className="map-canvas"></div>
+        <svg className="lead-map-svg" viewBox=${`0 0 ${LEAD_MAP_VIEWBOX.width} ${LEAD_MAP_VIEWBOX.height}`} role="img" aria-label="Lead response map by state">
+          <defs>
+            <linearGradient id="lead-map-grid" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(122, 196, 255, 0.16)" />
+              <stop offset="100%" stopColor="rgba(122, 196, 255, 0)" />
+            </linearGradient>
+            <radialGradient id="lead-map-glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(39, 146, 240, 0.34)" />
+              <stop offset="100%" stopColor="rgba(39, 146, 240, 0)" />
+            </radialGradient>
+          </defs>
+          <rect className="lead-map-frame" x="14" y="14" width="892" height="532" rx="26" />
+          <rect className="lead-map-grid-fill" x="56" y="52" width="808" height="364" rx="34" />
+          ${[0, 1, 2, 3, 4].map(
+            (row) => html`<line className="lead-map-grid-line" x1="82" y1=${90 + row * 64} x2="834" y2=${90 + row * 64} />`,
+          )}
+          ${[0, 1, 2, 3, 4, 5].map(
+            (column) => html`<line className="lead-map-grid-line vertical" x1=${120 + column * 118} y1="68" x2=${120 + column * 118} y2="398" />`,
+          )}
+          <ellipse className="lead-map-glow" cx="664" cy="214" rx="196" ry="138" />
+          <ellipse className="lead-map-glow secondary" cx="280" cy="232" rx="212" ry="156" />
+          ${connectors.map(
+            (connector) => html`
+              <line
+                className="lead-map-connector"
+                x1=${connector.from.x}
+                y1=${connector.from.y}
+                x2=${connector.to.x}
+                y2=${connector.to.y}
+                style=${{ animationDelay: connector.delay }}
+              />
+            `,
+          )}
+          ${nodes.map(
+            (node) => html`
+              <g key=${node.code} className=${`lead-map-node${node.active ? " is-active" : ""}`} style=${{ animationDelay: node.delay }}>
+                <title>${node.name}: ${formatNumber(node.count)} records</title>
+                ${node.active
+                  ? html`<circle className="lead-map-pulse" cx=${node.x} cy=${node.y} r=${node.radius + 10} />`
+                  : null}
+                <circle className="lead-map-dot" cx=${node.x} cy=${node.y} r=${node.radius} />
+                <text className="lead-map-label" x=${node.x} y=${node.y + 3} textAnchor="middle">${node.code}</text>
+                ${node.active
+                  ? html`
+                      <g className="lead-map-count-tag" transform=${`translate(${node.x + node.radius + 6} ${node.y - node.radius - 10})`}>
+                        <rect width="34" height="18" rx="9" />
+                        <text x="17" y="12" textAnchor="middle">${node.count > 99 ? "99+" : node.count}</text>
+                      </g>
+                    `
+                  : null}
+              </g>
+            `,
+          )}
+        </svg>
       </div>
     </section>
   `;
@@ -1206,9 +1249,9 @@ function LeadDashboardPage({ dashboardData, filters, setFilters, isLoading, sync
       <header className="dashboard-head">
         <div>
           <div className="eyebrow">Lead Sync Dashboard</div>
-          <h1 className="page-title">Campaign performance, conversion, and state coverage</h1>
+          <h1 className="page-title">Campaign Snapshot</h1>
           <p className="page-copy">
-            This layout is mapped directly to the live workbook with the requested KPI cards, campaign filters, response visuals, and a U.S. map that writes state abbreviations on active states.
+            Live workbook KPIs, filters, and U.S. map.
           </p>
         </div>
         <div className="head-meta">
@@ -1429,23 +1472,21 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
           type: "choropleth",
           locationmode: "USA-states",
           locations,
-          z: zValues,
-          zmin: 0,
-          zmax: maxValue,
+          z: locations.map(() => 1),
+          zmin: 1,
+          zmax: 1,
           showscale: false,
           colorscale: [
-            [0, "#d7e5f2"],
-            [0.35, "#a8c0d8"],
-            [0.7, "#6e95bc"],
-            [1, "#0d4d8a"],
+            [0, "#ffffff"],
+            [1, "#ffffff"],
           ],
           marker: {
             line: {
-              color: "#7d8ea3",
+              color: "#90aa96",
               width: 0.8,
             },
           },
-          hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
+          hoverinfo: "skip",
         },
       ];
 
@@ -1459,14 +1500,14 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
           zmax: maxValue,
           showscale: false,
           colorscale: [
-            [0, "#8bc5ff"],
-            [0.45, "#3c8cff"],
-            [1, "#0a4f9c"],
+            [0, "#b9efc2"],
+            [0.45, "#67d77d"],
+            [1, "#15803d"],
           ],
           marker: {
             line: {
-              color: "#d7ecff",
-              width: 1.4,
+              color: "#4f9d62",
+              width: 1.6,
             },
           },
           hovertemplate: "%{location}: %{z} mapped projects<extra></extra>",
@@ -1495,13 +1536,13 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
           lon: projects.map((project) => project.longitude),
           mode: "markers",
           marker: {
-            size: 20,
-            color: "#08345f",
+            size: 24,
+            color: "rgba(0, 0, 0, 0.01)",
             line: {
-              color: "#d8f4ff",
-              width: 2,
+              color: "rgba(0, 0, 0, 0)",
+              width: 0,
             },
-            opacity: 0.9,
+            opacity: 0.01,
           },
           customdata: projectCustomData,
           hovertemplate:
@@ -1676,9 +1717,9 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
             center: viewport.center,
             bgcolor: "rgba(0,0,0,0)",
             showland: true,
-            landcolor: "#dce8f4",
+            landcolor: "#ffffff",
             lakecolor: "rgba(0,0,0,0)",
-            subunitcolor: "#7d8ea3",
+            subunitcolor: "#90aa96",
           },
           paper_bgcolor: "rgba(0,0,0,0)",
           plot_bgcolor: "rgba(0,0,0,0)",
@@ -1749,8 +1790,8 @@ function SalesMapPanel({ stateCounts, projects, selectedState, setSelectedState,
     <section className="panel sales-map-panel">
       <div className="panel-head">
         <div>
-          <h3 className="panel-title">U.S. Projects</h3>
-          <p className="panel-caption">Project states are highlighted, county boundaries are drawn for covered states, and each site uses the IKIO logo marker</p>
+          <h3 className="panel-title">Project Map</h3>
+          <p className="panel-caption">State coverage, site pins, and nearest project.</p>
         </div>
       </div>
       <div className="map-wrap">
@@ -1859,9 +1900,9 @@ function SalesMapperPage({ salesData, filters, setFilters, selectedState, setSel
       <header className="dashboard-head">
         <div>
           <div className="eyebrow">Projects</div>
-          <h1 className="page-title">U.S. project footprint and nearest-project lookup</h1>
+          <h1 className="page-title">Projects Overview</h1>
           <p className="page-copy">
-            Built from the provided IKIO case-study CSV. Distances are shown in miles using Haversine calculations from the selected state centroid to each mapped project coordinate, with same-state projects ranked first.
+            State coverage and nearest-project view from the selected state.
           </p>
         </div>
         <div className="head-meta">
