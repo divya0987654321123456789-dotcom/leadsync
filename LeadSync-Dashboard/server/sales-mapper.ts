@@ -1,10 +1,11 @@
+import "./env";
 import fs from "fs";
 import path from "path";
 import xlsx from "xlsx";
 import { api, type SalesMapperData } from "@shared/routes";
 
 const DEFAULT_PROJECTS_GOOGLE_SHEETS_DOCS_URL =
-  "https://docs.google.com/spreadsheets/d/1jYkwEpQ2hXLycm0mlglTVaN-joSlQrvTNUwSSaN6Uqg/edit?usp=sharing";
+  "https://docs.google.com/spreadsheets/d/158xwYOXbq2UbltJPlRWvKdpJPvMLRUzgltT48qSSy2I/edit?usp=sharing";
 const DEFAULT_PROJECTS_GOOGLE_SHEETS_PUBLISHED_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vTd0kUGt528IBYbHS8-pgCQX2Vge-15bWo9Pb1mjYqNiEN0W2Rym_le1_KyJ65kZCViOXHlQhCFafHt/pubhtml";
 const REMOTE_WORKBOOK_TIMEOUT_MS = 30_000;
@@ -370,6 +371,16 @@ async function buildPayloadFromWorkbook(workbookUrl: string): Promise<SalesMappe
       improvedLightingPercent: parseNumber(row["Improved Lighting Levels"]),
       maintenanceSavingsUsd: parseNumber(row["Maintenance Savings ($)"]),
       images: parseImages(row.Images),
+      projectSummary:
+        normalizeText(row["Project Summary"] ?? row.Summary ?? row["Project Overview"] ?? row.Overview) || null,
+      projectTimeline:
+        normalizeText(row["Project Timeline"] ?? row.Timeline ?? row["Implementation Timeline"] ?? row.Schedule) || null,
+      subcontractorInfo:
+        normalizeText(row["Subcontractor Info"] ?? row.Subcontractor ?? row["Sub Contractor"] ?? row["Contractor Info"]) || null,
+      salesQuote:
+        normalizeText(row["Sales Quote"] ?? row.Quote ?? row["Quoted Value"] ?? row["Quote Details"]) || null,
+      associatedPerson:
+        normalizeText(row["Associated Person"] ?? row["Sales Contact"] ?? row["Contact Person"] ?? row["Point of Contact"]) || null,
       description: normalizeText(row.Description) || null,
       challenge: normalizeText(row.Challenge) || null,
       resolution: normalizeText(row.Resolution) || null,

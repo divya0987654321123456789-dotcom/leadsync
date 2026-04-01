@@ -53,7 +53,7 @@ Notes:
 Default hosted source:
 
 - Google Sheets docs URL:
-  `https://docs.google.com/spreadsheets/d/1jYkwEpQ2hXLycm0mlglTVaN-joSlQrvTNUwSSaN6Uqg/edit?usp=sharing`
+  `https://docs.google.com/spreadsheets/d/158xwYOXbq2UbltJPlRWvKdpJPvMLRUzgltT48qSSy2I/edit?usp=sharing`
 - Published web URL:
   `https://docs.google.com/spreadsheets/d/e/2PACX-1vTd0kUGt528IBYbHS8-pgCQX2Vge-15bWo9Pb1mjYqNiEN0W2Rym_le1_KyJ65kZCViOXHlQhCFafHt/pubhtml`
 
@@ -118,7 +118,7 @@ For Vercel, Railway, Render, or similar hosts, use the Google Sheets docs URLs r
 
 ```text
 WORKBOOK_SOURCE_URL=https://docs.google.com/spreadsheets/d/1JhbylSA2yPp7aFOHXJGa6o8UvRALVqaurpswNF0yii4/edit?usp=sharing
-PROJECTS_SOURCE_URL=https://docs.google.com/spreadsheets/d/1jYkwEpQ2hXLycm0mlglTVaN-joSlQrvTNUwSSaN6Uqg/edit?usp=sharing
+PROJECTS_SOURCE_URL=https://docs.google.com/spreadsheets/d/158xwYOXbq2UbltJPlRWvKdpJPvMLRUzgltT48qSSy2I/edit?usp=sharing
 SESSION_SECRET=replace-this-in-production
 AUTH_BASIC_EMAIL=admin@ikioledlighting.com
 AUTH_BASIC_NAME=Admin

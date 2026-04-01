@@ -1,3 +1,4 @@
+import "./env";
 import fs from "fs";
 import path from "path";
 import xlsx from "xlsx";
@@ -186,7 +187,7 @@ type DashboardFilterOption = {
 type DashboardSheetOption = {
   value: string;
   label: string;
-  sheetType: "leads" | "email";
+  sheetType: "all" | "leads" | "email";
   year: string | null;
 };
 
@@ -787,18 +788,26 @@ function buildDashboardSheetOptions(
   sheetOrder: string[],
   sheets: Record<string, WorkbookSheetSummary>,
 ): DashboardSheetOption[] {
-  return sheetOrder
-    .filter((sheetName) => Boolean(sheets[sheetName]))
-    .map((sheetName) => ({
-      value: sheetName,
-      label: sheetName,
-      sheetType: sheets[sheetName].sheetType,
-      year: extractYearToken(sheetName),
-    }));
+  return [
+    {
+      value: "All",
+      label: "All Sheets",
+      sheetType: "all",
+      year: null,
+    },
+    ...sheetOrder
+      .filter((sheetName) => Boolean(sheets[sheetName]))
+      .map((sheetName) => ({
+        value: sheetName,
+        label: sheetName,
+        sheetType: sheets[sheetName].sheetType,
+        year: extractYearToken(sheetName),
+      })),
+  ];
 }
 
 function getDefaultDashboardSheet(sheetOptions: DashboardSheetOption[]): string {
-  return sheetOptions.find((option) => option.sheetType === "leads")?.value || sheetOptions[0]?.value || "All";
+  return sheetOptions.find((option) => option.value === "All")?.value || sheetOptions[0]?.value || "All";
 }
 
 function normalizeDashboardFilters(filters: DashboardFilters = {}): Required<DashboardFilters> {
@@ -876,7 +885,7 @@ function getSheetScopedDashboardRecords(
   sheetOptions: DashboardSheetOption[],
 ) {
   const selectedSheetOption = sheetOptions.find((option) => option.value === selectedSheet);
-  if (!selectedSheetOption) {
+  if (!selectedSheetOption || selectedSheetOption.sheetType === "all") {
     return {
       scopedLeads: leadRecords,
       scopedEmails: emailRecords,

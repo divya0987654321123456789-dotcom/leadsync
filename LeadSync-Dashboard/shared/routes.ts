@@ -51,7 +51,7 @@ const filterOptionSchema = z.object({
 const dashboardSheetOptionSchema = z.object({
   value: z.string(),
   label: z.string(),
-  sheetType: z.enum(["leads", "email"]),
+  sheetType: z.enum(["all", "leads", "email"]),
   year: z.string().nullable(),
 });
 
@@ -118,6 +118,11 @@ const salesMapperProjectSchema = z.object({
   improvedLightingPercent: z.number().nullable(),
   maintenanceSavingsUsd: z.number().nullable(),
   images: z.array(z.string()).nullable(),
+  projectSummary: z.string().nullable().optional(),
+  projectTimeline: z.string().nullable().optional(),
+  subcontractorInfo: z.string().nullable().optional(),
+  salesQuote: z.string().nullable().optional(),
+  associatedPerson: z.string().nullable().optional(),
   description: z.string().nullable(),
   challenge: z.string().nullable(),
   resolution: z.string().nullable(),
@@ -132,6 +137,42 @@ const salesMapperSchema = z.object({
   summary: salesMapperSummarySchema,
   filterOptions: salesMapperFilterOptionsSchema,
   projects: z.array(salesMapperProjectSchema),
+});
+
+const salesMapperDemographicStateSchema = z.object({
+  stateCode: z.string(),
+  stateFips: z.string(),
+  name: z.string(),
+  population: z.number().nullable(),
+  medianHouseholdIncome: z.number().nullable(),
+});
+
+const salesMapperDemographicCountySchema = z.object({
+  geoid: z.string(),
+  stateCode: z.string(),
+  stateFips: z.string(),
+  countyFips: z.string(),
+  name: z.string(),
+  population: z.number().nullable(),
+  medianHouseholdIncome: z.number().nullable(),
+});
+
+const salesMapperDemographicDistrictSchema = z.object({
+  geoid: z.string(),
+  stateCode: z.string(),
+  stateFips: z.string(),
+  districtCode: z.string(),
+  name: z.string(),
+  population: z.number().nullable(),
+  medianHouseholdIncome: z.number().nullable(),
+});
+
+const salesMapperDemographicsSchema = z.object({
+  generatedAt: z.string(),
+  states: z.array(salesMapperDemographicStateSchema),
+  counties: z.array(salesMapperDemographicCountySchema),
+  districts: z.array(salesMapperDemographicDistrictSchema),
+  districtGeoJson: z.any().nullable(),
 });
 
 const baseSheetSummarySchema = z.object({
@@ -280,6 +321,13 @@ export const api = {
         200: salesMapperSchema,
       },
     },
+    salesMapperDemographics: {
+      method: "GET" as const,
+      path: "/api/dashboard/sales-mapper-demographics" as const,
+      responses: {
+        200: salesMapperDemographicsSchema,
+      },
+    },
   },
   leads: {
     list: {
@@ -343,4 +391,5 @@ export type LeadInput = CreateLeadRequest;
 export type LeadUpdateInput = z.infer<typeof api.leads.update.input>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type SalesMapperData = z.infer<typeof salesMapperSchema>;
+export type SalesMapperDemographics = z.infer<typeof salesMapperDemographicsSchema>;
 export type { LeadResponse };

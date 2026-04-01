@@ -1,3 +1,4 @@
+import "./env";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AuthUser } from "@shared/routes";

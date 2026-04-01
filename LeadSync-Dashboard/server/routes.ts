@@ -5,6 +5,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { getWorkbookDashboard, type DashboardFilters } from "./onedrive-workbook";
 import { getSalesMapperData } from "./sales-mapper";
+import { getSalesMapperDemographics } from "./sales-mapper-demographics";
 import { authenticateUser, destroySession, establishSession, getSessionUser, requireAuth } from "./auth";
 
 export async function registerRoutes(
@@ -76,6 +77,16 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Projects load error:", err);
       res.status(500).json({ message: `Failed to fetch Projects: ${err.message}` });
+    }
+  });
+
+  app.get(api.dashboard.salesMapperDemographics.path, requireAuth, async (_req, res) => {
+    try {
+      const demographics = await getSalesMapperDemographics();
+      res.json(demographics);
+    } catch (err: any) {
+      console.error("Projects demographics load error:", err);
+      res.status(500).json({ message: `Failed to fetch Projects demographics: ${err.message}` });
     }
   });
 
